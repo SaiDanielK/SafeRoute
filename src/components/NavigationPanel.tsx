@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  LayoutChangeEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -36,18 +37,22 @@ type NavigationPanelProps = {
   onToggleVoice: () => void;
   onToggleNightMode: () => void;
   onToggleExpanded?: () => void;
+
+  onHeightChange?: (height: number) => void;
 };
 
 function formatDistance(meters: number): string {
   if (!Number.isFinite(meters) || meters <= 0) {
-    return "0 m";
+    return "0 mi";
   }
 
-  if (meters < 1000) {
-    return `${Math.round(meters)} m`;
+  const miles = meters / 1609.344;
+
+  if (miles < 10) {
+    return `${miles.toFixed(1)} mi`;
   }
 
-  return `${(meters / 1000).toFixed(1)} km`;
+  return `${Math.round(miles)} mi`;
 }
 
 export default function NavigationPanel({
@@ -66,10 +71,16 @@ export default function NavigationPanel({
   onToggleVoice,
   onToggleNightMode,
   onToggleExpanded,
+  onHeightChange,
 }: NavigationPanelProps) {
+  function handleLayout(event: LayoutChangeEvent) {
+    onHeightChange?.(event.nativeEvent.layout.height);
+  }
+
   if (arrived) {
     return (
       <View
+        onLayout={handleLayout}
         style={[
           styles.container,
           nightMode && styles.containerNight,
@@ -104,7 +115,9 @@ export default function NavigationPanel({
           ]}
           onPress={onFinish}
         >
-          <Text style={styles.primaryButtonText}>Done</Text>
+          <Text style={styles.primaryButtonText}>
+            Done
+          </Text>
         </Pressable>
       </View>
     );
@@ -113,6 +126,7 @@ export default function NavigationPanel({
   if (active) {
     return (
       <View
+        onLayout={handleLayout}
         style={[
           styles.container,
           styles.activeContainer,
@@ -122,6 +136,7 @@ export default function NavigationPanel({
         {recalculating ? (
           <View style={styles.recalculatingBanner}>
             <View style={styles.spinnerDot} />
+
             <Text style={styles.recalculatingText}>
               Recalculating…
             </Text>
@@ -131,14 +146,19 @@ export default function NavigationPanel({
         <View style={styles.activeHeader}>
           <View style={styles.liveIndicator}>
             <View style={styles.liveDot} />
-            <Text style={styles.liveText}>LIVE NAVIGATION</Text>
+
+            <Text style={styles.liveText}>
+              LIVE NAVIGATION
+            </Text>
           </View>
 
           <Pressable
             style={styles.closeButton}
             onPress={onEnd}
           >
-            <Text style={styles.closeButtonText}>×</Text>
+            <Text style={styles.closeButtonText}>
+              ×
+            </Text>
           </Pressable>
         </View>
 
@@ -146,7 +166,9 @@ export default function NavigationPanel({
           <View style={styles.instructionCard}>
             <View style={styles.instructionIcon}>
               <Text style={styles.instructionIconText}>
-                {getDirectionIcon(currentStep.instruction)}
+                {getDirectionIcon(
+                  currentStep.instruction
+                )}
               </Text>
             </View>
 
@@ -161,24 +183,30 @@ export default function NavigationPanel({
               <Text
                 style={[
                   styles.instructionDistance,
-                  nightMode && styles.textMutedNight,
+                  nightMode &&
+                    styles.textMutedNight,
                 ]}
               >
-                {formatDistance(currentStep.distanceMeters)}
+                {formatDistance(
+                  currentStep.distanceMeters
+                )}
               </Text>
             </View>
           </View>
         ) : (
           <View style={styles.instructionCard}>
             <View style={styles.instructionIcon}>
-              <Text style={styles.instructionIconText}>→</Text>
+              <Text style={styles.instructionIconText}>
+                →
+              </Text>
             </View>
 
             <View style={styles.instructionContent}>
               <Text
                 style={[
                   styles.instructionText,
-                  nightMode && styles.textWhite,
+                  nightMode &&
+                    styles.textWhite,
                 ]}
               >
                 Continue on the route
@@ -192,7 +220,8 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.nextLabel,
-                nightMode && styles.textMutedNight,
+                nightMode &&
+                  styles.textMutedNight,
               ]}
             >
               NEXT
@@ -201,7 +230,8 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.nextInstruction,
-                nightMode && styles.textWhiteSoft,
+                nightMode &&
+                  styles.textWhiteSoft,
               ]}
               numberOfLines={1}
             >
@@ -215,7 +245,8 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.statLabel,
-                nightMode && styles.textMutedNight,
+                nightMode &&
+                  styles.textMutedNight,
               ]}
             >
               ARRIVAL
@@ -224,12 +255,15 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.statValue,
-                nightMode && styles.textWhite,
+                nightMode &&
+                  styles.textWhite,
               ]}
               numberOfLines={2}
               adjustsFontSizeToFit
             >
-              {formatDuration(remainingDurationSeconds)}
+              {formatDuration(
+                remainingDurationSeconds
+              )}
             </Text>
           </View>
 
@@ -239,7 +273,8 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.statLabel,
-                nightMode && styles.textMutedNight,
+                nightMode &&
+                  styles.textMutedNight,
               ]}
             >
               DISTANCE
@@ -248,12 +283,15 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.statValue,
-                nightMode && styles.textWhite,
+                nightMode &&
+                  styles.textWhite,
               ]}
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {formatDistance(remainingDistanceMeters)}
+              {formatDistance(
+                remainingDistanceMeters
+              )}
             </Text>
           </View>
         </View>
@@ -262,7 +300,8 @@ export default function NavigationPanel({
           <Pressable
             style={[
               styles.controlButton,
-              nightMode && styles.controlButtonNight,
+              nightMode &&
+                styles.controlButtonNight,
             ]}
             onPress={onToggleVoice}
           >
@@ -273,17 +312,21 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.controlText,
-                nightMode && styles.textWhiteSoft,
+                nightMode &&
+                  styles.textWhiteSoft,
               ]}
             >
-              {voiceEnabled ? "Voice" : "Muted"}
+              {voiceEnabled
+                ? "Voice"
+                : "Muted"}
             </Text>
           </Pressable>
 
           <Pressable
             style={[
               styles.controlButton,
-              nightMode && styles.controlButtonNight,
+              nightMode &&
+                styles.controlButtonNight,
             ]}
             onPress={onToggleNightMode}
           >
@@ -294,7 +337,8 @@ export default function NavigationPanel({
             <Text
               style={[
                 styles.controlText,
-                nightMode && styles.textWhiteSoft,
+                nightMode &&
+                  styles.textWhiteSoft,
               ]}
             >
               {nightMode ? "Day" : "Night"}
@@ -304,11 +348,14 @@ export default function NavigationPanel({
           <Pressable
             style={[
               styles.endButton,
-              nightMode && styles.endButtonNight,
+              nightMode &&
+                styles.endButtonNight,
             ]}
             onPress={onEnd}
           >
-            <Text style={styles.endButtonText}>End</Text>
+            <Text style={styles.endButtonText}>
+              End
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -317,6 +364,7 @@ export default function NavigationPanel({
 
   return (
     <View
+      onLayout={handleLayout}
       style={[
         styles.container,
         nightMode && styles.containerNight,
@@ -327,7 +375,8 @@ export default function NavigationPanel({
           <Text
             style={[
               styles.readyEyebrow,
-              nightMode && styles.textMutedNight,
+              nightMode &&
+                styles.textMutedNight,
             ]}
           >
             ROUTE READY
@@ -336,7 +385,8 @@ export default function NavigationPanel({
           <Text
             style={[
               styles.title,
-              nightMode && styles.textWhite,
+              nightMode &&
+                styles.textWhite,
             ]}
           >
             Ready to navigate
@@ -348,7 +398,8 @@ export default function NavigationPanel({
             <Pressable
               style={({ pressed }) => [
                 styles.expandButton,
-                pressed && styles.buttonPressed,
+                pressed &&
+                  styles.buttonPressed,
               ]}
               onPress={onToggleExpanded}
               accessibilityRole="button"
@@ -363,7 +414,9 @@ export default function NavigationPanel({
           ) : null}
 
           <View style={styles.readyShield}>
-            <Text style={styles.readyShieldText}>🛡️</Text>
+            <Text style={styles.readyShieldText}>
+              🛡️
+            </Text>
           </View>
         </View>
       </View>
@@ -373,7 +426,8 @@ export default function NavigationPanel({
           <Text
             style={[
               styles.readyStatLabel,
-              nightMode && styles.textMutedNight,
+              nightMode &&
+                styles.textMutedNight,
             ]}
           >
             ETA
@@ -384,7 +438,9 @@ export default function NavigationPanel({
             numberOfLines={2}
             adjustsFontSizeToFit
           >
-            {formatDuration(remainingDurationSeconds)}
+            {formatDuration(
+              remainingDurationSeconds
+            )}
           </Text>
         </View>
 
@@ -394,7 +450,8 @@ export default function NavigationPanel({
           <Text
             style={[
               styles.readyStatLabel,
-              nightMode && styles.textMutedNight,
+              nightMode &&
+                styles.textMutedNight,
             ]}
           >
             DISTANCE
@@ -405,7 +462,9 @@ export default function NavigationPanel({
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {formatDistance(remainingDistanceMeters)}
+            {formatDistance(
+              remainingDistanceMeters
+            )}
           </Text>
         </View>
       </View>
@@ -421,14 +480,17 @@ export default function NavigationPanel({
           Start Navigation
         </Text>
 
-        <Text style={styles.primaryButtonArrow}>→</Text>
+        <Text style={styles.primaryButtonArrow}>
+          →
+        </Text>
       </Pressable>
 
       <View style={styles.readyControls}>
         <Pressable
           style={[
             styles.smallControlButton,
-            nightMode && styles.controlButtonNight,
+            nightMode &&
+              styles.controlButtonNight,
           ]}
           onPress={onToggleVoice}
         >
@@ -439,17 +501,21 @@ export default function NavigationPanel({
           <Text
             style={[
               styles.smallControlText,
-              nightMode && styles.textWhiteSoft,
+              nightMode &&
+                styles.textWhiteSoft,
             ]}
           >
-            {voiceEnabled ? "Voice On" : "Voice Off"}
+            {voiceEnabled
+              ? "Voice On"
+              : "Voice Off"}
           </Text>
         </Pressable>
 
         <Pressable
           style={[
             styles.smallControlButton,
-            nightMode && styles.controlButtonNight,
+            nightMode &&
+              styles.controlButtonNight,
           ]}
           onPress={onToggleNightMode}
         >
@@ -460,10 +526,13 @@ export default function NavigationPanel({
           <Text
             style={[
               styles.smallControlText,
-              nightMode && styles.textWhiteSoft,
+              nightMode &&
+                styles.textWhiteSoft,
             ]}
           >
-            {nightMode ? "Day Mode" : "Night Mode"}
+            {nightMode
+              ? "Day Mode"
+              : "Night Mode"}
           </Text>
         </Pressable>
       </View>
@@ -471,8 +540,11 @@ export default function NavigationPanel({
   );
 }
 
-function getDirectionIcon(instruction: string): string {
-  const value = instruction.toLowerCase();
+function getDirectionIcon(
+  instruction: string
+): string {
+  const value =
+    instruction.toLowerCase();
 
   if (
     value.includes("u-turn") ||

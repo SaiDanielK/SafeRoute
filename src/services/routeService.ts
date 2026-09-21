@@ -17,17 +17,78 @@ export type RouteStep = {
   wayPoints: [number, number];
 };
 
-export type RouteResult = {
+export type RouteAlternative = {
   coordinates: RouteCoordinate[];
   distanceMeters: number;
   durationSeconds: number;
   steps: RouteStep[];
 };
 
+export type RouteResult = {
+  coordinates: RouteCoordinate[];
+  distanceMeters: number;
+  durationSeconds: number;
+  steps: RouteStep[];
+  alternatives?: RouteAlternative[];
+};
+
 const ORS_BASE_URL =
   "https://api.heigit.org/openrouteservice/v2/directions";
 
 const MAX_ROUTE_DISTANCE_METERS = 6_000_000;
+
+function parseRouteFeature(
+  feature: any
+): RouteAlternative {
+  const distanceMeters =
+    feature.properties?.summary?.distance ?? 0;
+
+  const durationSeconds =
+    feature.properties?.summary?.duration ?? 0;
+
+  const coordinates =
+    feature.geometry?.coordinates?.map(
+      ([longitude, latitude]: [
+        number,
+        number
+      ]) => ({
+        latitude,
+        longitude,
+      })
+    ) ?? [];
+
+  const segments =
+    feature.properties?.segments ?? [];
+
+  const steps: RouteStep[] =
+    segments.flatMap(
+      (segment: any) =>
+        (segment.steps ?? []).map(
+          (step: any) => ({
+            instruction:
+              step.instruction ??
+              "Continue on the route",
+            distanceMeters:
+              step.distance ?? 0,
+            durationSeconds:
+              step.duration ?? 0,
+            type:
+              step.type ?? 0,
+            name:
+              step.name ?? "",
+            wayPoints:
+              step.way_points ?? [0, 0],
+          })
+        )
+    );
+
+  return {
+    coordinates,
+    distanceMeters,
+    durationSeconds,
+    steps,
+  };
+}
 
 export async function getRoute(
   start: RouteCoordinate,
@@ -54,17 +115,38 @@ export async function getRoute(
       },
       body: JSON.stringify({
         coordinates: [
-          [start.longitude, start.latitude],
-          [destination.longitude, destination.latitude],
+          [
+            start.longitude,
+            start.latitude,
+          ],
+          [
+            destination.longitude,
+            destination.latitude,
+          ],
         ],
+
         instructions: true,
         instructions_format: "text",
         language: "en",
+
+        /*
+         * Ask ORS for additional route choices.
+         *
+         * target_count = 3 means ORS will try
+         * to return the main route plus up to
+         * two alternatives.
+         */
+        alternative_routes: {
+          target_count: 3,
+          weight_factor: 1.4,
+          share_factor: 0.6,
+        },
       }),
     }
   );
 
-  const responseText = await response.text();
+  const responseText =
+    await response.text();
 
   if (!response.ok) {
     console.error(
@@ -88,67 +170,48 @@ export async function getRoute(
     );
   }
 
-  const feature = data.features?.[0];
+  const features =
+    data.features ?? [];
 
-  if (!feature) {
+  if (features.length === 0) {
     throw new Error(
       "OpenRouteService did not return a route."
     );
   }
 
-  const distanceMeters =
-    feature.properties?.summary?.distance ?? 0;
+  const parsedRoutes =
+    features.map(
+      (feature: any) =>
+        parseRouteFeature(feature)
+    );
 
-  const durationSeconds =
-    feature.properties?.summary?.duration ?? 0;
+  const primaryRoute =
+    parsedRoutes[0];
 
-  // SafeRoute maximum route distance:
-  // 6,000,000 meters = 6,000 km
-  if (distanceMeters > MAX_ROUTE_DISTANCE_METERS) {
+  if (
+    primaryRoute.distanceMeters >
+    MAX_ROUTE_DISTANCE_METERS
+  ) {
     throw new Error(
       "This destination is too far away. SafeRoute currently supports routes up to 6,000 km."
     );
   }
 
-  const coordinates =
-    feature.geometry.coordinates.map(
-      ([longitude, latitude]: [
-        number,
-        number
-      ]) => ({
-        latitude,
-        longitude,
-      })
-    );
-
-  const segments =
-    feature.properties?.segments ?? [];
-
-  const steps: RouteStep[] =
-    segments.flatMap(
-      (segment: any) =>
-        (segment.steps ?? []).map(
-          (step: any) => ({
-            instruction:
-              step.instruction ??
-              "Continue on the route",
-            distanceMeters:
-              step.distance ?? 0,
-            durationSeconds:
-              step.duration ?? 0,
-            type: step.type ?? 0,
-            name:
-              step.name ?? "",
-            wayPoints:
-              step.way_points ?? [0, 0],
-          })
-        )
-    );
+  const alternatives =
+    parsedRoutes
+      .slice(1)
+      .filter(
+        (route: RouteAlternative) =>
+          route.coordinates.length > 1
+      )
+      .filter(
+        (route: RouteAlternative) =>
+          route.distanceMeters <=
+          MAX_ROUTE_DISTANCE_METERS
+      );
 
   return {
-    coordinates,
-    distanceMeters,
-    durationSeconds,
-    steps,
+    ...primaryRoute,
+    alternatives,
   };
 }

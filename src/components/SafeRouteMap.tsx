@@ -34,14 +34,25 @@ type LivePosition = {
   latitude: number;
   longitude: number;
   heading?: number | null;
+  speed?: number | null;
 };
 
 type SafeRouteMapProps = {
   region: Region | null;
 
+  speedLimit?: number | null;
+
   destination?: Destination | null;
 
   routeCoordinates?: RouteCoordinate[];
+
+  alternativeRoutes?: RouteCoordinate[][];
+
+  selectedRouteIndex?: number;
+
+  onSelectRoute?: (
+    index: number
+  ) => void;
 
   navigationActive?: boolean;
 
@@ -60,10 +71,55 @@ type SafeRouteMapProps = {
   onToggle3D?: () => void;
 };
 
+function metersPerSecondToMph(
+  speed: number | null | undefined
+): number {
+  if (
+    typeof speed !== "number" ||
+    !Number.isFinite(speed) ||
+    speed < 0
+  ) {
+    return 0;
+  }
+
+  return speed * 2.236936;
+}
+
+function formatSpeed(
+  speed: number | null | undefined
+): string {
+  return `${Math.round(
+    metersPerSecondToMph(speed)
+  )} mph`;
+}
+
+function formatSpeedLimit(
+  speedLimit: number | null | undefined
+): string {
+  if (
+    typeof speedLimit !==
+      "number" ||
+    !Number.isFinite(
+      speedLimit
+    ) ||
+    speedLimit <= 0
+  ) {
+    return "-- mph";
+  }
+
+  return `${Math.round(
+    speedLimit
+  )} mph`;
+}
+
 export default function SafeRouteMap({
   region,
+  speedLimit = null,
   destination,
   routeCoordinates = [],
+  alternativeRoutes = [],
+  selectedRouteIndex = 0,
+  onSelectRoute,
   navigationActive = false,
   livePosition = null,
   navigationNightMode = false,
@@ -81,13 +137,6 @@ export default function SafeRouteMap({
   const previousNavigationActiveRef =
     useRef(false);
 
-  /*
-   * Navigation camera settings.
-   *
-   * The small deltas below force a very
-   * close map view instead of relying only
-   * on the zoom property.
-   */
   const NAVIGATION_ZOOM = 19.5;
 
   const NAVIGATION_LATITUDE_DELTA =
@@ -98,12 +147,13 @@ export default function SafeRouteMap({
 
   const NORMAL_ZOOM = 15;
 
-  const defaultRegion: Region = {
-    latitude: 34.0522,
-    longitude: -118.2437,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  };
+  const defaultRegion: Region =
+    {
+      latitude: 34.0522,
+      longitude: -118.2437,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
+    };
 
   const mapRegion =
     region ?? defaultRegion;
@@ -142,9 +192,6 @@ export default function SafeRouteMap({
     return null;
   }
 
-  /*
-   * Initial map centering.
-   */
   useEffect(() => {
     if (
       !mapRef.current ||
@@ -165,13 +212,10 @@ export default function SafeRouteMap({
           longitude:
             region.longitude,
         },
-
         zoom: NORMAL_ZOOM,
-
         pitch: threeDEnabled
           ? 45
           : 0,
-
         heading: 0,
       },
       {
@@ -180,12 +224,6 @@ export default function SafeRouteMap({
     );
   }, [region]);
 
-  /*
-   * Normal route preview.
-   *
-   * Disabled during navigation so it
-   * cannot fight the navigation camera.
-   */
   useEffect(() => {
     if (
       !mapRef.current ||
@@ -218,17 +256,10 @@ export default function SafeRouteMap({
           bottom: 330,
           left: 60,
         },
-
         animated: true,
       }
     );
 
-    /*
-     * fitToCoordinates can flatten
-     * the camera.
-     *
-     * Re-apply 3D if enabled.
-     */
     if (threeDEnabled) {
       setTimeout(() => {
         if (!mapRef.current) {
@@ -252,13 +283,6 @@ export default function SafeRouteMap({
     threeDEnabled,
   ]);
 
-  /*
-   * Navigation just started.
-   *
-   * Force the map directly onto the
-   * user's current location and make
-   * the visible area very small.
-   */
   useEffect(() => {
     if (
       !navigationActive ||
@@ -274,36 +298,26 @@ export default function SafeRouteMap({
     previousNavigationActiveRef.current =
       navigationActive;
 
-    if (!navigationJustStarted) {
+    if (
+      !navigationJustStarted
+    ) {
       return;
     }
 
-    /*
-     * This is the important part:
-     * use animateToRegion with tiny
-     * deltas to guarantee a close-up.
-     */
     mapRef.current.animateToRegion(
       {
         latitude:
           livePosition.latitude,
-
         longitude:
           livePosition.longitude,
-
         latitudeDelta:
           NAVIGATION_LATITUDE_DELTA,
-
         longitudeDelta:
           NAVIGATION_LONGITUDE_DELTA,
       },
       1000
     );
 
-    /*
-     * Apply heading and 3D after
-     * the close-up animation.
-     */
     setTimeout(() => {
       if (
         !mapRef.current ||
@@ -317,17 +331,13 @@ export default function SafeRouteMap({
           center: {
             latitude:
               livePosition.latitude,
-
             longitude:
               livePosition.longitude,
           },
-
           zoom:
             NAVIGATION_ZOOM,
-
           heading:
             getHeading(),
-
           pitch:
             threeDEnabled
               ? 45
@@ -344,12 +354,6 @@ export default function SafeRouteMap({
     threeDEnabled,
   ]);
 
-  /*
-   * Reset the navigation-start flag
-   * after navigation ends so the next
-   * navigation session gets the zoom-in
-   * animation again.
-   */
   useEffect(() => {
     if (!navigationActive) {
       previousNavigationActiveRef.current =
@@ -357,14 +361,6 @@ export default function SafeRouteMap({
     }
   }, [navigationActive]);
 
-  /*
-   * Google Maps-style live navigation
-   * camera following.
-   *
-   * Every GPS position update moves the
-   * camera with the user while followUser
-   * is enabled.
-   */
   useEffect(() => {
     if (
       !mapRef.current ||
@@ -379,13 +375,10 @@ export default function SafeRouteMap({
       {
         latitude:
           livePosition.latitude,
-
         longitude:
           livePosition.longitude,
-
         latitudeDelta:
           NAVIGATION_LATITUDE_DELTA,
-
         longitudeDelta:
           NAVIGATION_LONGITUDE_DELTA,
       },
@@ -407,17 +400,13 @@ export default function SafeRouteMap({
           center: {
             latitude:
               livePosition.latitude,
-
             longitude:
               livePosition.longitude,
           },
-
           zoom:
             NAVIGATION_ZOOM,
-
           heading:
             getHeading(),
-
           pitch:
             threeDEnabled
               ? 45
@@ -437,12 +426,6 @@ export default function SafeRouteMap({
     threeDEnabled,
   ]);
 
-  /*
-   * Toggle 2D / 3D immediately.
-   *
-   * 3D = 45 degree pitch
-   * 2D = 0 degree pitch
-   */
   useEffect(() => {
     if (!mapRef.current) {
       return;
@@ -458,17 +441,14 @@ export default function SafeRouteMap({
     mapRef.current.animateCamera(
       {
         center: position,
-
         zoom:
           navigationActive
             ? NAVIGATION_ZOOM
             : NORMAL_ZOOM,
-
         heading:
           navigationActive
             ? getHeading()
             : 0,
-
         pitch:
           threeDEnabled
             ? 45
@@ -480,13 +460,6 @@ export default function SafeRouteMap({
     );
   }, [threeDEnabled]);
 
-  /*
-   * Recenter the map.
-   *
-   * During navigation this returns
-   * directly to the user's current
-   * location and restores following.
-   */
   function recenterMap() {
     const position =
       getCameraPosition();
@@ -502,23 +475,15 @@ export default function SafeRouteMap({
       true
     );
 
-    /*
-     * Use a tiny region so the recenter
-     * button also gives a close navigation
-     * view.
-     */
     if (navigationActive) {
       mapRef.current.animateToRegion(
         {
           latitude:
             position.latitude,
-
           longitude:
             position.longitude,
-
           latitudeDelta:
             NAVIGATION_LATITUDE_DELTA,
-
           longitudeDelta:
             NAVIGATION_LONGITUDE_DELTA,
         },
@@ -533,13 +498,10 @@ export default function SafeRouteMap({
         mapRef.current.animateCamera(
           {
             center: position,
-
             zoom:
               NAVIGATION_ZOOM,
-
             heading:
               getHeading(),
-
             pitch:
               threeDEnabled
                 ? 45
@@ -557,11 +519,8 @@ export default function SafeRouteMap({
     mapRef.current.animateCamera(
       {
         center: position,
-
         zoom: NORMAL_ZOOM,
-
         heading: 0,
-
         pitch:
           threeDEnabled
             ? 45
@@ -573,19 +532,24 @@ export default function SafeRouteMap({
     );
   }
 
-  /*
-   * Manual dragging means the user wants
-   * to explore the map.
-   *
-   * Stop GPS camera following until the
-   * user presses the recenter button.
-   */
   function handleMapPan() {
     if (followUser) {
       onFollowUserChange?.(
         false
       );
     }
+  }
+
+  function handleAlternativePress(
+    index: number
+  ) {
+    if (navigationActive) {
+      return;
+    }
+
+    onSelectRoute?.(
+      index
+    );
   }
 
   return (
@@ -605,7 +569,9 @@ export default function SafeRouteMap({
         showsBuildings={
           threeDEnabled
         }
-        showsPointsOfInterests={true}
+        showsPointsOfInterests={
+          true
+        }
         showsTraffic={false}
         rotateEnabled={true}
         pitchEnabled={true}
@@ -623,6 +589,61 @@ export default function SafeRouteMap({
           handleMapPan
         }
       >
+        {/*
+         * Draw alternatives first so the
+         * currently selected route stays
+         * visually on top.
+         */}
+        {!navigationActive &&
+          alternativeRoutes.map(
+            (
+              coordinates,
+              alternativeIndex
+            ) => {
+              const routeIndex =
+                alternativeIndex +
+                1;
+
+              const selected =
+                selectedRouteIndex ===
+                routeIndex;
+
+              return (
+                <Polyline
+                  key={`alternative-route-${routeIndex}`}
+                  coordinates={
+                    coordinates
+                  }
+                  strokeWidth={
+                    selected
+                      ? 7
+                      : 5
+                  }
+                  strokeColor={
+                    selected
+                      ? "#20C997"
+                      : "#7B91A4"
+                  }
+                  lineCap="round"
+                  lineJoin="round"
+                  tappable={
+                    true
+                  }
+                  onPress={() =>
+                    handleAlternativePress(
+                      routeIndex
+                    )
+                  }
+                  zIndex={
+                    selected
+                      ? 3
+                      : 1
+                  }
+                />
+              );
+            }
+          )}
+
         {routeCoordinates.length >
           1 && (
           <Polyline
@@ -637,6 +658,13 @@ export default function SafeRouteMap({
             strokeColor="#20C997"
             lineCap="round"
             lineJoin="round"
+            tappable={!navigationActive}
+            onPress={() =>
+              handleAlternativePress(
+                0
+              )
+            }
+            zIndex={5}
           />
         )}
 
@@ -669,7 +697,9 @@ export default function SafeRouteMap({
               y: 0.5,
             }}
             flat={true}
-            tracksViewChanges={false}
+            tracksViewChanges={
+              false
+            }
             rotation={
               getHeading()
             }
@@ -774,6 +804,72 @@ export default function SafeRouteMap({
         </Pressable>
       </View>
 
+      {navigationActive &&
+        livePosition && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.speedContainer,
+              navigationNightMode &&
+                styles.speedContainerNight,
+            ]}
+          >
+            <View
+              style={
+                styles.speedBox
+              }
+            >
+              <Text
+                style={
+                  styles.speedValue
+                }
+              >
+                {formatSpeedLimit(
+                  speedLimit
+                )}
+              </Text>
+
+              <Text
+                style={
+                  styles.speedLabel
+                }
+              >
+                SPEED LIMIT
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.speedDivider
+              }
+            />
+
+            <View
+              style={
+                styles.speedBox
+              }
+            >
+              <Text
+                style={
+                  styles.speedValue
+                }
+              >
+                {formatSpeed(
+                  livePosition.speed
+                )}
+              </Text>
+
+              <Text
+                style={
+                  styles.speedLabel
+                }
+              >
+                YOUR SPEED
+              </Text>
+            </View>
+          </View>
+        )}
+
       {navigationActive && (
         <View
           pointerEvents="none"
@@ -825,7 +921,6 @@ const styles =
       borderColor: "#294963",
       alignItems: "center",
       justifyContent: "center",
-
       shadowColor: "#000",
       shadowOffset: {
         width: 0,
@@ -846,7 +941,9 @@ const styles =
     mapControlPressed: {
       opacity: 0.65,
       transform: [
-        { scale: 0.94 },
+        {
+          scale: 0.94,
+        },
       ],
     },
 
@@ -904,6 +1001,64 @@ const styles =
         "transparent",
       borderBottomColor:
         "#007AFF",
+    },
+
+    speedContainer: {
+      position: "absolute",
+      top: 66,
+      left: 14,
+      width: 250,
+      height: 64,
+      borderRadius: 17,
+      backgroundColor:
+        "rgba(7,17,31,0.95)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 25,
+      elevation: 12,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 9,
+    },
+
+    speedContainerNight: {
+      backgroundColor:
+        "rgba(2,6,11,0.96)",
+    },
+
+    speedBox: {
+      flex: 1,
+      height: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    speedValue: {
+      color: "#FFFFFF",
+      fontSize: 17,
+      fontWeight: "900",
+      letterSpacing: -0.3,
+    },
+
+    speedLabel: {
+      color: "#71899E",
+      fontSize: 8,
+      fontWeight: "800",
+      letterSpacing: 0.6,
+      marginTop: 3,
+    },
+
+    speedDivider: {
+      width: 1,
+      height: 36,
+      backgroundColor: "#21415B",
     },
 
     navigationGlow: {

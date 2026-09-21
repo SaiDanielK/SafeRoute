@@ -7,6 +7,7 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -35,6 +36,7 @@ import {
 } from "../constants/travelModes";
 
 import { formatDuration } from "../utils/formatters";
+import { getSpeedLimit } from "../services/speedLimitService";
 
 type Destination = {
   name: string;
@@ -47,6 +49,7 @@ type LivePosition = {
   latitude: number;
   longitude: number;
   heading?: number | null;
+  speed?: number | null;
 };
 
 const ARRIVAL_WALKING_METERS = 35;
@@ -62,14 +65,8 @@ const REROUTE_COOLDOWN_MS = 8000;
 const VOICE_ADVANCE_WALKING_METERS = 120;
 const VOICE_ADVANCE_DRIVING_METERS = 250;
 
-function toCoordinate(
-  location: Location.LocationObject
-): RouteCoordinate {
-  return {
-    latitude: location.coords.latitude,
-    longitude: location.coords.longitude,
-  };
-}
+const COMPACT_SCREEN_WIDTH_RATIO = 0.99;
+const COMPACT_SCREEN_HEIGHT_RATIO = 0.99;
 
 function degreesToRadians(
   degrees: number
@@ -83,27 +80,31 @@ function getDistanceBetweenPoints(
 ): number {
   const earthRadius = 6371000;
 
-  const latitudeDifference = degreesToRadians(
-    second.latitude - first.latitude
-  );
+  const latitudeDifference =
+    degreesToRadians(
+      second.latitude - first.latitude
+    );
 
-  const longitudeDifference = degreesToRadians(
-    second.longitude - first.longitude
-  );
+  const longitudeDifference =
+    degreesToRadians(
+      second.longitude - first.longitude
+    );
 
-  const firstLatitude = degreesToRadians(
-    first.latitude
-  );
+  const firstLatitude =
+    degreesToRadians(first.latitude);
 
-  const secondLatitude = degreesToRadians(
-    second.latitude
-  );
+  const secondLatitude =
+    degreesToRadians(second.latitude);
 
   const a =
-    Math.sin(latitudeDifference / 2) ** 2 +
+    Math.sin(
+      latitudeDifference / 2
+    ) ** 2 +
     Math.cos(firstLatitude) *
       Math.cos(secondLatitude) *
-      Math.sin(longitudeDifference / 2) ** 2;
+      Math.sin(
+        longitudeDifference / 2
+      ) ** 2;
 
   const c =
     2 *
@@ -126,18 +127,24 @@ function getClosestRouteIndex(
   let closestIndex = 0;
   let closestDistance = Infinity;
 
-  coordinates.forEach((coordinate, index) => {
-    const distance =
-      getDistanceBetweenPoints(
-        position,
-        coordinate
-      );
+  coordinates.forEach(
+    (coordinate, index) => {
+      const distance =
+        getDistanceBetweenPoints(
+          position,
+          coordinate
+        );
 
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestIndex = index;
+      if (
+        distance <
+        closestDistance
+      ) {
+        closestDistance =
+          distance;
+        closestIndex = index;
+      }
     }
-  });
+  );
 
   return closestIndex;
 }
@@ -158,7 +165,9 @@ function getDistanceToRoute(
 
   return getDistanceBetweenPoints(
     position,
-    coordinates[closestIndex]
+    coordinates[
+      closestIndex
+    ]
   );
 }
 
@@ -188,9 +197,12 @@ function getCurrentStepIndex(
     index++
   ) {
     const endIndex =
-      steps[index].wayPoints?.[1] ?? 0;
+      steps[index]
+        .wayPoints?.[1] ?? 0;
 
-    if (closestIndex >= endIndex) {
+    if (
+      closestIndex >= endIndex
+    ) {
       currentIndex = index;
     } else {
       break;
@@ -207,7 +219,9 @@ function getRemainingRouteDistance(
   position: RouteCoordinate,
   routeCoordinates: RouteCoordinate[]
 ): number {
-  if (routeCoordinates.length < 2) {
+  if (
+    routeCoordinates.length < 2
+  ) {
     return 0;
   }
 
@@ -217,20 +231,26 @@ function getRemainingRouteDistance(
       routeCoordinates
     );
 
-  let distance = getDistanceBetweenPoints(
-    position,
-    routeCoordinates[closestIndex]
-  );
+  let distance =
+    getDistanceBetweenPoints(
+      position,
+      routeCoordinates[
+        closestIndex
+      ]
+    );
 
   for (
     let index = closestIndex;
-    index < routeCoordinates.length - 1;
+    index <
+    routeCoordinates.length - 1;
     index++
   ) {
     distance +=
       getDistanceBetweenPoints(
         routeCoordinates[index],
-        routeCoordinates[index + 1]
+        routeCoordinates[
+          index + 1
+        ]
       );
   }
 
@@ -244,23 +264,27 @@ function formatDistance(
     return "--";
   }
 
-  if (meters < 1000) {
-    return `${Math.round(meters)} m`;
-  }
-
-  const miles = meters / 1609.344;
+  const miles =
+    meters / 1609.344;
 
   if (miles < 10) {
-    return `${miles.toFixed(1)} mi`;
+    return `${miles.toFixed(
+      1
+    )} mi`;
   }
 
-  return `${Math.round(miles)} mi`;
+  return `${Math.round(
+    miles
+  )} mi`;
 }
 
 function getAdvanceDistance(
   travelMode: TravelMode["id"]
 ): number {
-  if (travelMode === "driving-car") {
+  if (
+    travelMode ===
+    "driving-car"
+  ) {
     return VOICE_ADVANCE_DRIVING_METERS;
   }
 
@@ -277,6 +301,34 @@ function speak(text: string) {
   });
 }
 
+function getRouteComparisonLabel(
+  selectedRoute: RouteResult,
+  primaryRoute: RouteResult
+): string {
+  const difference =
+    Math.round(
+      selectedRoute.durationSeconds -
+        primaryRoute.durationSeconds
+    );
+
+  const differenceMinutes =
+    Math.round(
+      Math.abs(difference) / 60
+    );
+
+  if (
+    differenceMinutes <= 1
+  ) {
+    return "Similar ETA";
+  }
+
+  if (difference < 0) {
+    return `Saves ${differenceMinutes} min`;
+  }
+
+  return `+${differenceMinutes} min`;
+}
+
 export default function MapScreen() {
   const [region, setRegion] =
     useState<Location.LocationObject | null>(
@@ -284,13 +336,31 @@ export default function MapScreen() {
     );
 
   const [destination, setDestination] =
-    useState<Destination | null>(null);
+    useState<Destination | null>(
+      null
+    );
 
-  const [routeCoordinates, setRouteCoordinates] =
-    useState<RouteCoordinate[]>([]);
+  const [
+    routeCoordinates,
+    setRouteCoordinates,
+  ] = useState<RouteCoordinate[]>(
+    []
+  );
 
   const [routeInfo, setRouteInfo] =
-    useState<RouteResult | null>(null);
+    useState<RouteResult | null>(
+      null
+    );
+
+  const [
+    availableRoutes,
+    setAvailableRoutes,
+  ] = useState<RouteResult[]>([]);
+
+  const [
+    selectedRouteIndex,
+    setSelectedRouteIndex,
+  ] = useState(0);
 
   const [routeLoading, setRouteLoading] =
     useState(false);
@@ -298,16 +368,20 @@ export default function MapScreen() {
   const [loading, setLoading] =
     useState(true);
 
-  const [locationEnabled, setLocationEnabled] =
-    useState(true);
+  const [
+    locationEnabled,
+    setLocationEnabled,
+  ] = useState(true);
 
   const [travelMode, setTravelMode] =
     useState<TravelMode["id"]>(
       "foot-walking"
     );
 
-  const [navigationActive, setNavigationActive] =
-    useState(false);
+  const [
+    navigationActive,
+    setNavigationActive,
+  ] = useState(false);
 
   const [
     navigationStepIndex,
@@ -317,7 +391,9 @@ export default function MapScreen() {
   const [
     navigationPosition,
     setNavigationPosition,
-  ] = useState<LivePosition | null>(null);
+  ] = useState<LivePosition | null>(
+    null
+  );
 
   const [
     remainingDistanceMeters,
@@ -329,6 +405,9 @@ export default function MapScreen() {
     setRemainingDurationSeconds,
   ] = useState(0);
 
+  const [speedLimit, setSpeedLimit] =
+    useState<number | null>(null);
+
   const [voiceEnabled, setVoiceEnabled] =
     useState(true);
 
@@ -337,68 +416,98 @@ export default function MapScreen() {
     setNavigationNightMode,
   ] = useState(false);
 
-  const [recalculating, setRecalculating] =
-    useState(false);
+  const [
+    recalculating,
+    setRecalculating,
+  ] = useState(false);
 
   const [arrived, setArrived] =
     useState(false);
 
-  const [routePanelExpanded, setRoutePanelExpanded] =
+  const [
+    routePanelExpanded,
+    setRoutePanelExpanded,
+  ] = useState(false);
+
+  const [compactScreen, setCompactScreen] =
     useState(false);
 
+  /*
+   * Height of the bottom NavigationPanel.
+   *
+   * This lets the expanded route panel
+   * attach directly above it instead of
+   * floating over it.
+   */
+  const [
+    navigationPanelHeight,
+    setNavigationPanelHeight,
+  ] = useState(0);
+
   const routePanelAnimation =
-    useRef(new Animated.Value(0)).current;
+    useRef(new Animated.Value(0))
+      .current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(routePanelAnimation, {
-        toValue: routePanelExpanded ? 1 : 0,
+    Animated.timing(
+      routePanelAnimation,
+      {
+        toValue:
+          routePanelExpanded
+            ? 1
+            : 0,
         duration: 240,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [routePanelExpanded, routePanelAnimation]);
+        useNativeDriver: false,
+      }
+    ).start();
+  }, [
+    routePanelExpanded,
+    routePanelAnimation,
+  ]);
 
-  /*
-   * New map controls.
-   */
-  const [mapFollowingUser, setMapFollowingUser] =
-    useState(true);
+  const [
+    mapFollowingUser,
+    setMapFollowingUser,
+  ] = useState(true);
 
   const [map3DEnabled, setMap3DEnabled] =
     useState(false);
 
-  /*
-   * Refs keep the GPS watcher from using
-   * stale React state.
-   */
   const locationSubscriptionRef =
     useRef<Location.LocationSubscription | null>(
       null
     );
 
   const routeCoordinatesRef =
-    useRef<RouteCoordinate[]>([]);
+    useRef<RouteCoordinate[]>(
+      []
+    );
 
   const routeInfoRef =
-    useRef<RouteResult | null>(null);
+    useRef<RouteResult | null>(
+      null
+    );
+
+  const availableRoutesRef =
+    useRef<RouteResult[]>([]);
 
   const destinationRef =
-    useRef<Destination | null>(null);
+    useRef<Destination | null>(
+      null
+    );
 
   const travelModeRef =
     useRef<TravelMode["id"]>(
       "foot-walking"
     );
 
-  const lastLocationRef =
-    useRef<LivePosition | null>(null);
-
   const currentStepRef =
     useRef(0);
 
   const announcedStepRef =
-    useRef<number | null>(null);
+    useRef<number | null>(
+      null
+    );
 
   const offRouteCountRef =
     useRef(0);
@@ -415,6 +524,9 @@ export default function MapScreen() {
   const voiceEnabledRef =
     useRef(true);
 
+  const speedLimitLookupRef =
+    useRef(0);
+
   useEffect(() => {
     routeCoordinatesRef.current =
       routeCoordinates;
@@ -424,6 +536,11 @@ export default function MapScreen() {
     routeInfoRef.current =
       routeInfo;
   }, [routeInfo]);
+
+  useEffect(() => {
+    availableRoutesRef.current =
+      availableRoutes;
+  }, [availableRoutes]);
 
   useEffect(() => {
     destinationRef.current =
@@ -455,7 +572,10 @@ export default function MapScreen() {
         } =
           await Location.requestForegroundPermissionsAsync();
 
-        if (status !== "granted") {
+        if (
+          status !==
+          "granted"
+        ) {
           setLocationEnabled(false);
           setLoading(false);
           return;
@@ -475,11 +595,16 @@ export default function MapScreen() {
 
         setNavigationPosition({
           latitude:
-            current.coords.latitude,
+            current.coords
+              .latitude,
           longitude:
-            current.coords.longitude,
+            current.coords
+              .longitude,
           heading:
-            current.coords.heading,
+            current.coords
+              .heading,
+          speed:
+            current.coords.speed,
         });
       } catch (error) {
         console.error(
@@ -504,17 +629,32 @@ export default function MapScreen() {
     };
   }, [getCurrentLocation]);
 
-  async function applyRouteResult(
-    result: RouteResult
+  function applyRouteResult(
+    result: RouteResult,
+    routesOverride?: RouteResult[]
   ) {
+    const routes =
+      routesOverride ??
+      [
+        result,
+        ...(result.alternatives ?? []),
+      ];
+
     setRouteInfo(result);
     setRouteCoordinates(
       result.coordinates
     );
 
-    routeInfoRef.current = result;
+    setAvailableRoutes(routes);
+
+    routeInfoRef.current =
+      result;
+
     routeCoordinatesRef.current =
       result.coordinates;
+
+    availableRoutesRef.current =
+      routes;
 
     setRemainingDistanceMeters(
       result.distanceMeters
@@ -544,13 +684,24 @@ export default function MapScreen() {
         setRouteLoading(true);
       }
 
-      const result = await getRoute(
-        start,
-        end,
-        mode
-      );
+      const result =
+        await getRoute(
+          start,
+          end,
+          mode
+        );
 
-      await applyRouteResult(result);
+      const routes = [
+        result,
+        ...(result.alternatives ?? []),
+      ];
+
+      setSelectedRouteIndex(0);
+
+      applyRouteResult(
+        result,
+        routes
+      );
 
       return result;
     } catch (error) {
@@ -562,6 +713,8 @@ export default function MapScreen() {
       if (!isReroute) {
         setRouteCoordinates([]);
         setRouteInfo(null);
+        setAvailableRoutes([]);
+        setSelectedRouteIndex(0);
       }
 
       return null;
@@ -572,6 +725,33 @@ export default function MapScreen() {
         setRouteLoading(false);
       }
     }
+  }
+
+  function handleSelectRoute(
+    index: number
+  ) {
+    const routes =
+      availableRoutesRef.current;
+
+    const selected =
+      routes[index];
+
+    if (!selected) {
+      return;
+    }
+
+    setSelectedRouteIndex(index);
+
+    applyRouteResult(
+      selected,
+      routes
+    );
+
+    /*
+     * Keep the alternatives panel open
+     * so the user can switch between routes.
+     */
+    setRoutePanelExpanded(true);
   }
 
   async function handleSelectDestination(
@@ -593,9 +773,11 @@ export default function MapScreen() {
       (region
         ? {
             latitude:
-              region.coords.latitude,
+              region.coords
+                .latitude,
             longitude:
-              region.coords.longitude,
+              region.coords
+                .longitude,
           }
         : null);
 
@@ -635,19 +817,31 @@ export default function MapScreen() {
     setRecalculating(false);
 
     setMapFollowingUser(true);
+
+    setSpeedLimit(null);
+    speedLimitLookupRef.current = 0;
   }
 
   function clearDestination() {
     stopNavigation();
 
     setDestination(null);
-    destinationRef.current = null;
+    destinationRef.current =
+      null;
 
     setRouteCoordinates([]);
-    routeCoordinatesRef.current = [];
+    routeCoordinatesRef.current =
+      [];
 
     setRouteInfo(null);
-    routeInfoRef.current = null;
+    routeInfoRef.current =
+      null;
+
+    setAvailableRoutes([]);
+    availableRoutesRef.current =
+      [];
+
+    setSelectedRouteIndex(0);
 
     setNavigationPosition(null);
 
@@ -661,7 +855,8 @@ export default function MapScreen() {
     setRoutePanelExpanded(false);
 
     currentStepRef.current = 0;
-    announcedStepRef.current = null;
+    announcedStepRef.current =
+      null;
   }
 
   async function rerouteFromLocation(
@@ -681,7 +876,8 @@ export default function MapScreen() {
     const now = Date.now();
 
     if (
-      now - lastRerouteRef.current <
+      now -
+        lastRerouteRef.current <
       REROUTE_COOLDOWN_MS
     ) {
       return;
@@ -693,38 +889,52 @@ export default function MapScreen() {
     setRecalculating(true);
 
     try {
-      const result = await getRoute(
-        {
-          latitude: position.latitude,
-          longitude: position.longitude,
-        },
-        {
-          latitude:
-            currentDestination.latitude,
-          longitude:
-            currentDestination.longitude,
-        },
-        travelModeRef.current
-      );
+      const result =
+        await getRoute(
+          {
+            latitude:
+              position.latitude,
+            longitude:
+              position.longitude,
+          },
+          {
+            latitude:
+              currentDestination.latitude,
+            longitude:
+              currentDestination.longitude,
+          },
+          travelModeRef.current
+        );
 
-      await applyRouteResult(result);
+      setSelectedRouteIndex(0);
 
-      currentStepRef.current = 0;
-      announcedStepRef.current = null;
-      offRouteCountRef.current = 0;
+      applyRouteResult(result);
+
+      currentStepRef.current =
+        0;
+
+      announcedStepRef.current =
+        null;
+
+      offRouteCountRef.current =
+        0;
     } catch (error) {
       console.error(
         "Rerouting error:",
         error
       );
     } finally {
-      reroutingRef.current = false;
+      reroutingRef.current =
+        false;
+
       setRecalculating(false);
     }
   }
 
   function handleArrival() {
-    if (!navigationActiveRef.current) {
+    if (
+      !navigationActiveRef.current
+    ) {
       return;
     }
 
@@ -742,7 +952,9 @@ export default function MapScreen() {
 
     Speech.stop();
 
-    if (voiceEnabledRef.current) {
+    if (
+      voiceEnabledRef.current
+    ) {
       speak(
         "You have arrived at your destination."
       );
@@ -753,7 +965,9 @@ export default function MapScreen() {
     stepIndex: number,
     position: LivePosition
   ) {
-    if (!voiceEnabledRef.current) {
+    if (
+      !voiceEnabledRef.current
+    ) {
       return;
     }
 
@@ -763,7 +977,10 @@ export default function MapScreen() {
     const coordinates =
       routeCoordinatesRef.current;
 
-    if (!route || coordinates.length === 0) {
+    if (
+      !route ||
+      coordinates.length === 0
+    ) {
       return;
     }
 
@@ -800,7 +1017,8 @@ export default function MapScreen() {
     let distanceToTurn = 0;
 
     if (
-      targetIndex >= closestIndex
+      targetIndex >=
+      closestIndex
     ) {
       distanceToTurn =
         getDistanceBetweenPoints(
@@ -810,18 +1028,24 @@ export default function MapScreen() {
             longitude:
               position.longitude,
           },
-          coordinates[targetIndex]
+          coordinates[
+            targetIndex
+          ]
         );
 
       for (
-        let index = closestIndex;
-        index < targetIndex;
+        let index =
+          closestIndex;
+        index <
+        targetIndex;
         index++
       ) {
         distanceToTurn +=
           getDistanceBetweenPoints(
             coordinates[index],
-            coordinates[index + 1]
+            coordinates[
+              index + 1
+            ]
           );
       }
     }
@@ -837,7 +1061,9 @@ export default function MapScreen() {
         announcedStepRef.current =
           stepIndex;
 
-        speak(step.instruction);
+        speak(
+          step.instruction
+        );
       }
     }
   }
@@ -845,24 +1071,56 @@ export default function MapScreen() {
   async function handleNavigationLocation(
     location: Location.LocationObject
   ) {
-    if (!navigationActiveRef.current) {
+    if (
+      !navigationActiveRef.current
+    ) {
       return;
     }
 
-    const position: LivePosition = {
-      latitude:
-        location.coords.latitude,
-      longitude:
-        location.coords.longitude,
-      heading:
-        location.coords.heading,
-    };
+    const position: LivePosition =
+      {
+        latitude:
+          location.coords
+            .latitude,
+        longitude:
+          location.coords
+            .longitude,
+        heading:
+          location.coords
+            .heading,
+        speed:
+          location.coords.speed,
+      };
 
-    lastLocationRef.current =
-      position;
+    setNavigationPosition(
+      position
+    );
 
-    setNavigationPosition(position);
     setRegion(location);
+
+    const now = Date.now();
+
+    if (
+      now -
+        speedLimitLookupRef.current >=
+      15000
+    ) {
+      speedLimitLookupRef.current =
+        now;
+
+      getSpeedLimit(
+        position.latitude,
+        position.longitude
+      ).then((result) => {
+        if (
+          navigationActiveRef.current
+        ) {
+          setSpeedLimit(
+            result.speedLimitMph
+          );
+        }
+      });
+    }
 
     const currentDestination =
       destinationRef.current;
@@ -933,7 +1191,8 @@ export default function MapScreen() {
       distanceToRoute >
       offRouteThreshold
     ) {
-      offRouteCountRef.current += 1;
+      offRouteCountRef.current +=
+        1;
     } else {
       offRouteCountRef.current = 0;
     }
@@ -1023,98 +1282,100 @@ export default function MapScreen() {
     );
   }
 
-  async function startNavigation() {
-    if (!destination) {
-      return;
-    }
-
-    let start =
-      navigationPosition;
-
-    if (!start && region) {
-      start = {
-        latitude:
-          region.coords.latitude,
-        longitude:
-          region.coords.longitude,
-        heading:
-          region.coords.heading,
-      };
-    }
-
-    if (!start) {
-      return;
-    }
-
-    setArrived(false);
-
-    setMapFollowingUser(true);
-
-    /*
-     * Make sure the latest route begins
-     * from the current location.
-     */
-    const result =
-      await calculateRoute(
-        {
-          latitude: start.latitude,
-          longitude: start.longitude,
-        },
-        {
-          latitude:
-            destination.latitude,
-          longitude:
-            destination.longitude,
-        },
-        travelMode
-      );
-
-    if (!result) {
-      return;
-    }
-
-    setNavigationActive(true);
-    navigationActiveRef.current =
-      true;
-
-    setNavigationPosition(start);
-
-    currentStepRef.current = 0;
-    announcedStepRef.current = null;
-    offRouteCountRef.current = 0;
-
-    try {
-      const permission =
-        await Location.requestForegroundPermissionsAsync();
-
-      if (
-        permission.status !==
-        "granted"
-      ) {
-        setLocationEnabled(false);
-        return;
-      }
-
-      locationSubscriptionRef.current?.remove();
-
-      locationSubscriptionRef.current =
-        await Location.watchPositionAsync(
-          {
-            accuracy:
-              Location.Accuracy.High,
-            distanceInterval: 5,
-            timeInterval: 2000,
-            mayShowUserSettingsDialog: true,
-          },
-          handleNavigationLocation
-        );
-    } catch (error) {
-      console.error(
-        "Navigation location error:",
-        error
-      );
-    }
+async function startNavigation() {
+  if (!destination) {
+    return;
   }
+
+  let start =
+    navigationPosition;
+
+  if (!start && region) {
+    start = {
+      latitude:
+        region.coords.latitude,
+      longitude:
+        region.coords.longitude,
+      heading:
+        region.coords.heading,
+      speed:
+        region.coords.speed,
+    };
+  }
+
+  if (!start) {
+    return;
+  }
+
+  // Make sure there is already a selected route.
+  // IMPORTANT: Do not call calculateRoute() here.
+  // The user may have selected an alternative route,
+  // and we want to navigate using that exact route.
+  if (
+    routeCoordinatesRef.current.length === 0 ||
+    !routeInfoRef.current
+  ) {
+    return;
+  }
+
+  setArrived(false);
+
+  setMapFollowingUser(true);
+
+  // Keep the currently selected route.
+  // Do NOT recalculate here.
+  setRoutePanelExpanded(false);
+
+  setNavigationActive(true);
+
+  navigationActiveRef.current =
+    true;
+
+  setNavigationPosition(start);
+
+  currentStepRef.current = 0;
+  announcedStepRef.current =
+    null;
+
+  offRouteCountRef.current =
+    0;
+
+  try {
+    const permission =
+      await Location.requestForegroundPermissionsAsync();
+
+    if (
+      permission.status !==
+      "granted"
+    ) {
+      setLocationEnabled(false);
+      setNavigationActive(false);
+      navigationActiveRef.current =
+        false;
+      return;
+    }
+
+    locationSubscriptionRef.current?.remove();
+
+    locationSubscriptionRef.current =
+      await Location.watchPositionAsync(
+        {
+          accuracy:
+            Location.Accuracy.High,
+          distanceInterval: 5,
+          timeInterval: 2000,
+          mayShowUserSettingsDialog:
+            true,
+        },
+        handleNavigationLocation
+      );
+  } catch (error) {
+    console.error(
+      "Navigation location error:",
+      error
+    );
+  }
+}
 
   function finishNavigation() {
     setArrived(false);
@@ -1134,7 +1395,9 @@ export default function MapScreen() {
     voiceEnabledRef.current =
       nextValue;
 
-    setVoiceEnabled(nextValue);
+    setVoiceEnabled(
+      nextValue
+    );
 
     if (!nextValue) {
       Speech.stop();
@@ -1143,7 +1406,15 @@ export default function MapScreen() {
 
   function toggleNightMode() {
     setNavigationNightMode(
-      (previous) => !previous
+      (previous) =>
+        !previous
+    );
+  }
+
+  function toggleCompactScreen() {
+    setCompactScreen(
+      (previous) =>
+        !previous
     );
   }
 
@@ -1157,912 +1428,1371 @@ export default function MapScreen() {
       navigationStepIndex + 1
     ] ?? null;
 
+  const { width, height } =
+    Dimensions.get("window");
+
+  const compactWidth =
+    width *
+    COMPACT_SCREEN_WIDTH_RATIO;
+
+  const compactHeight =
+    height *
+    COMPACT_SCREEN_HEIGHT_RATIO;
+
+  const primaryRoute =
+    availableRoutes[0] ??
+    null;
+
+  /*
+   * The route panel normally sits at
+   * bottom: 178, leaving room for the
+   * NavigationPanel.
+   *
+   * When expanded, it moves directly
+   * above the actual NavigationPanel.
+   */
+  const expandedRouteBottom =
+    navigationPanelHeight > 0
+      ? navigationPanelHeight + 18
+      : 178;
+
   return (
-    <SafeAreaView
-      style={styles.container}
-    >
-      <View style={styles.header}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.backButton,
-            pressed &&
-              styles.buttonPressed,
-          ]}
-          onPress={() => {
-            if (navigationActive) {
-              stopNavigation();
-            }
-
-            router.back();
-          }}
+    <View style={styles.outerScreen}>
+      <View
+        style={[
+          styles.appFrame,
+          compactScreen && {
+            width: compactWidth,
+            height: compactHeight,
+          },
+        ]}
+      >
+        <SafeAreaView
+          style={styles.safeArea}
         >
-          <Ionicons
-            name="chevron-back"
-            size={25}
-            color="#FFFFFF"
-          />
-        </Pressable>
-
-        <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>
-            SafeRoute
-          </Text>
-
-          <Text style={styles.headerSubtitle}>
-            Safer navigation
-          </Text>
-        </View>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.headerLocationButton,
-            pressed &&
-              styles.buttonPressed,
-          ]}
-          onPress={getCurrentLocation}
-        >
-          <Ionicons
-            name="locate-outline"
-            size={22}
-            color="#20C997"
-          />
-        </Pressable>
-      </View>
-
-      <View style={styles.mapContainer}>
-        <SafeRouteMap
-          region={
-            region
-              ? {
-                  latitude:
-                    region.coords
-                      .latitude,
-                  longitude:
-                    region.coords
-                      .longitude,
-                  latitudeDelta: 0.05,
-                  longitudeDelta: 0.05,
+          <View style={styles.header}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed &&
+                  styles.buttonPressed,
+              ]}
+              onPress={() => {
+                if (
+                  navigationActive
+                ) {
+                  stopNavigation();
                 }
-              : null
-          }
-          destination={destination}
-          routeCoordinates={
-            routeCoordinates
-          }
-          navigationActive={
-            navigationActive
-          }
-          livePosition={
-            navigationPosition
-          }
-          navigationNightMode={
-            navigationNightMode
-          }
-          followUser={
-            mapFollowingUser
-          }
-          onFollowUserChange={
-            setMapFollowingUser
-          }
-          threeDEnabled={
-            map3DEnabled
-          }
-          onToggle3D={() =>
-            setMap3DEnabled(
-              (previous) =>
-                !previous
-            )
-          }
-        />
 
-        {!navigationActive && (
-          <>
-            <View
-              style={styles.searchContainer}
+                router.back();
+              }}
             >
-              <DestinationSearch
-                onSelectDestination={
-                  handleSelectDestination
-                }
+              <Ionicons
+                name="chevron-back"
+                size={25}
+                color="#FFFFFF"
               />
-            </View>
+            </Pressable>
 
             <View
-              style={
-                styles.travelModeContainer
-              }
+              style={styles.headerText}
             >
-              {TRAVEL_MODES.map(
-                (mode) => {
-                  const selected =
-                    travelMode ===
-                    mode.id;
-
-                  return (
-                    <Pressable
-                      key={mode.id}
-                      style={({ pressed }) => [
-                        styles.travelModeButton,
-                        selected &&
-                          styles.travelModeButtonSelected,
-                        pressed &&
-                          styles.buttonPressed,
-                      ]}
-                      onPress={async () => {
-                        setTravelMode(
-                          mode.id
-                        );
-
-                        travelModeRef.current =
-                          mode.id;
-
-                        if (
-                          destination &&
-                          region
-                        ) {
-                          await calculateRoute(
-                            {
-                              latitude:
-                                region
-                                  .coords
-                                  .latitude,
-                              longitude:
-                                region
-                                  .coords
-                                  .longitude,
-                            },
-                            {
-                              latitude:
-                                destination.latitude,
-                              longitude:
-                                destination.longitude,
-                            },
-                            mode.id
-                          );
-                        }
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.travelModeIcon,
-                          selected &&
-                            styles.travelModeIconSelected,
-                        ]}
-                      >
-                        {mode.icon}
-                      </Text>
-
-                      <Text
-                        style={[
-                          styles.travelModeText,
-                          selected &&
-                            styles.travelModeTextSelected,
-                        ]}
-                      >
-                        {
-                          mode.shortLabel
-                        }
-                      </Text>
-                    </Pressable>
-                  );
-                }
-              )}
-            </View>
-
-            {locationEnabled && (
-              <View
-                style={
-                  styles.locationBadge
-                }
-              >
-                <View
-                  style={
-                    styles.locationDot
-                  }
-                />
-
-                <Text
-                  style={
-                    styles.locationBadgeText
-                  }
-                >
-                  Location active
-                </Text>
-              </View>
-            )}
-
-            {loading && (
-              <View
-                style={
-                  styles.loadingCard
-                }
-              >
-                <ActivityIndicator
-                  size="small"
-                  color="#20C997"
-                />
-
-                <Text
-                  style={
-                    styles.loadingText
-                  }
-                >
-                  Finding your location...
-                </Text>
-              </View>
-            )}
-
-            {routeLoading && (
-              <View
-                style={
-                  styles.routeLoadingCard
-                }
-              >
-                <ActivityIndicator
-                  size="small"
-                  color="#20C997"
-                />
-
-                <Text
-                  style={
-                    styles.routeLoadingText
-                  }
-                >
-                  Finding your route...
-                </Text>
-              </View>
-            )}
-
-            {routeInfo &&
-              destination &&
-              !routeLoading && (
-                <Animated.View
-                  pointerEvents={
-                    routePanelExpanded ? "auto" : "none"
-                  }
-                  style={[
-                    styles.routeInfoCard,
-                    {
-                      opacity: routePanelAnimation,
-                      transform: [
-                        {
-                          translateY: routePanelAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [28, 0],
-                          }),
-                        },
-                        {
-                          scale: routePanelAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.97, 1],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  <View
-                    style={
-                      styles.routeInfoTop
-                    }
-                  >
-                    <View style={styles.routeInfoTitleBlock}>
-                      <Text
-                        style={
-                          styles.routeInfoTitle
-                        }
-                      >
-                        Route ready
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.routeInfoDestination
-                        }
-                        numberOfLines={1}
-                      >
-                        {destination.name}
-                      </Text>
-                    </View>
-
-                    <View style={styles.routeInfoActions}>
-                      <View
-                        style={
-                          styles.routeReadyBadge
-                        }
-                      >
-                        <Ionicons
-                          name="shield-checkmark"
-                          size={15}
-                          color="#20C997"
-                        />
-
-                        <Text
-                          style={
-                            styles.routeReadyText
-                          }
-                        >
-                          Ready
-                        </Text>
-                      </View>
-
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.routeMinimizeButton,
-                          pressed && styles.buttonPressed,
-                        ]}
-                        onPress={() =>
-                          setRoutePanelExpanded(false)
-                        }
-                        accessibilityRole="button"
-                        accessibilityLabel="Minimize route details"
-                      >
-                        <Ionicons
-                          name="chevron-down"
-                          size={18}
-                          color="#A9BDD1"
-                        />
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  <View
-                    style={
-                      styles.routeStats
-                    }
-                  >
-                    <View
-                      style={
-                        styles.routeStat
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.routeStatValue
-                        }
-                      >
-                        {formatDistance(
-                          routeInfo.distanceMeters
-                        )}
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.routeStatLabel
-                        }
-                      >
-                        Distance
-                      </Text>
-                    </View>
-
-                    <View
-                      style={
-                        styles.routeDivider
-                      }
-                    />
-
-                    <View
-                      style={
-                        styles.routeStat
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.routeStatValue
-                        }
-                      >
-                        {formatDuration(
-                          routeInfo.durationSeconds
-                        )}
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.routeStatLabel
-                        }
-                      >
-                        Estimated
-                      </Text>
-                    </View>
-                  </View>
-                </Animated.View>
-              )}
-          </>
-        )}
-
-        {navigationActive &&
-          navigationPosition && (
-            <View
-              style={
-                styles.liveNavigationPill
-              }
-            >
-              <View
-                style={
-                  styles.liveNavigationDot
-                }
-              />
-
               <Text
-                style={
-                  styles.liveNavigationText
-                }
+                style={styles.headerTitle}
               >
-                LIVE
+                SafeRoute
               </Text>
 
               <Text
-                style={
-                  styles.liveNavigationDistance
-                }
+                style={styles.headerSubtitle}
               >
-                {formatDistance(
-                  remainingDistanceMeters
-                )}
+                Safer navigation
               </Text>
             </View>
-          )}
 
-        {destination &&
-          !navigationActive &&
-          routeInfo && (
             <View
-              style={
-                styles.destinationActions
-              }
+              style={styles.headerActions}
             >
               <Pressable
                 style={({ pressed }) => [
-                  styles.clearDestinationButton,
+                  styles.headerLocationButton,
                   pressed &&
                     styles.buttonPressed,
                 ]}
                 onPress={
-                  clearDestination
+                  getCurrentLocation
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Center on current location"
+              >
+                <Ionicons
+                  name="locate-outline"
+                  size={22}
+                  color="#20C997"
+                />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.headerCompactButton,
+                  compactScreen &&
+                    styles.headerCompactButtonActive,
+                  pressed &&
+                    styles.buttonPressed,
+                ]}
+                onPress={
+                  toggleCompactScreen
+                }
+                accessibilityRole="button"
+                accessibilityLabel={
+                  compactScreen
+                    ? "Expand SafeRoute screen"
+                    : "Shrink SafeRoute screen"
                 }
               >
                 <Ionicons
-                  name="close"
-                  size={18}
-                  color="#A9BDD1"
-                />
-
-                <Text
-                  style={
-                    styles.clearDestinationText
+                  name={
+                    compactScreen
+                      ? "scan-outline"
+                      : "contract-outline"
                   }
-                >
-                  Clear
-                </Text>
+                  size={21}
+                  color={
+                    compactScreen
+                      ? "#20C997"
+                      : "#A9BDD1"
+                  }
+                />
               </Pressable>
             </View>
-          )}
+          </View>
 
-        <NavigationPanel
-          active={
-            navigationActive
-          }
-          arrived={arrived}
-          recalculating={
-            recalculating
-          }
-          currentStep={
-            currentStep
-          }
-          nextStep={nextStep}
-          voiceEnabled={
-            voiceEnabled
-          }
-          nightMode={
-            navigationNightMode
-          }
-          remainingDistanceMeters={
-            remainingDistanceMeters
-          }
-          remainingDurationSeconds={
-            remainingDurationSeconds
-          }
-          onStart={
-            startNavigation
-          }
-          onEnd={
-            stopNavigation
-          }
-          onFinish={
-            finishNavigation
-          }
-          onToggleVoice={
-            toggleVoice
-          }
-          onToggleNightMode={
-            toggleNightMode
-          }
-          onToggleExpanded={() =>
-            setRoutePanelExpanded((previous) => !previous)
-          }
-        />
+          <View
+            style={styles.mapContainer}
+          >
+            <SafeRouteMap
+              region={
+                region
+                  ? {
+                      latitude:
+                        region.coords
+                          .latitude,
+                      longitude:
+                        region.coords
+                          .longitude,
+                      latitudeDelta:
+                        0.05,
+                      longitudeDelta:
+                        0.05,
+                    }
+                  : null
+              }
+              destination={
+                destination
+              }
+              routeCoordinates={
+                routeCoordinates
+              }
+              alternativeRoutes={
+                availableRoutes
+                  .slice(1)
+                  .map(
+                    (route) =>
+                      route.coordinates
+                  )
+              }
+              selectedRouteIndex={
+                selectedRouteIndex
+              }
+              onSelectRoute={
+                handleSelectRoute
+              }
+              navigationActive={
+                navigationActive
+              }
+              livePosition={
+                navigationPosition
+              }
+              speedLimit={
+                speedLimit
+              }
+              navigationNightMode={
+                navigationNightMode
+              }
+              followUser={
+                mapFollowingUser
+              }
+              onFollowUserChange={
+                setMapFollowingUser
+              }
+              threeDEnabled={
+                map3DEnabled
+              }
+              onToggle3D={() =>
+                setMap3DEnabled(
+                  (previous) =>
+                    !previous
+                )
+              }
+            />
+
+            {!navigationActive && (
+              <>
+                <View
+                  style={
+                    styles.searchContainer
+                  }
+                >
+                  <DestinationSearch
+                    onSelectDestination={
+                      handleSelectDestination
+                    }
+                  />
+                </View>
+
+                <View
+                  style={
+                    styles.travelModeContainer
+                  }
+                >
+                  {TRAVEL_MODES.map(
+                    (mode) => {
+                      const selected =
+                        travelMode ===
+                        mode.id;
+
+                      return (
+                        <Pressable
+                          key={
+                            mode.id
+                          }
+                          style={({ pressed }) => [
+                            styles.travelModeButton,
+                            selected &&
+                              styles.travelModeButtonSelected,
+                            pressed &&
+                              styles.buttonPressed,
+                          ]}
+                          onPress={async () => {
+                            setTravelMode(
+                              mode.id
+                            );
+
+                            travelModeRef.current =
+                              mode.id;
+
+                            if (
+                              destination &&
+                              region
+                            ) {
+                              await calculateRoute(
+                                {
+                                  latitude:
+                                    region
+                                      .coords
+                                      .latitude,
+                                  longitude:
+                                    region
+                                      .coords
+                                      .longitude,
+                                },
+                                {
+                                  latitude:
+                                    destination.latitude,
+                                  longitude:
+                                    destination.longitude,
+                                },
+                                mode.id
+                              );
+                            }
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.travelModeIcon,
+                              selected &&
+                                styles.travelModeIconSelected,
+                            ]}
+                          >
+                            {
+                              mode.icon
+                            }
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.travelModeText,
+                              selected &&
+                                styles.travelModeTextSelected,
+                            ]}
+                          >
+                            {
+                              mode.shortLabel
+                            }
+                          </Text>
+                        </Pressable>
+                      );
+                    }
+                  )}
+                </View>
+
+                {locationEnabled && (
+                  <View
+                    style={
+                      styles.locationBadge
+                    }
+                  >
+                    <View
+                      style={
+                        styles.locationDot
+                      }
+                    />
+
+                    <Text
+                      style={
+                        styles.locationBadgeText
+                      }
+                    >
+                      Location active
+                    </Text>
+                  </View>
+                )}
+
+                {loading && (
+                  <View
+                    style={
+                      styles.loadingCard
+                    }
+                  >
+                    <ActivityIndicator
+                      size="small"
+                      color="#20C997"
+                    />
+
+                    <Text
+                      style={
+                        styles.loadingText
+                      }
+                    >
+                      Finding your location...
+                    </Text>
+                  </View>
+                )}
+
+                {routeLoading && (
+                  <View
+                    style={
+                      styles.routeLoadingCard
+                    }
+                  >
+                    <ActivityIndicator
+                      size="small"
+                      color="#20C997"
+                    />
+
+                    <Text
+                      style={
+                        styles.routeLoadingText
+                      }
+                    >
+                      Finding safer route options...
+                    </Text>
+                  </View>
+                )}
+
+                {routeInfo &&
+                  destination &&
+                  !routeLoading && (
+                    <>
+                      <Animated.View
+                        pointerEvents={
+                          routePanelExpanded
+                            ? "auto"
+                            : "none"
+                        }
+                        style={[
+                          styles.routeInfoCard,
+                          {
+                            bottom:
+                              routePanelAnimation.interpolate(
+                                {
+                                  inputRange: [
+                                    0,
+                                    1,
+                                  ],
+                                  outputRange: [
+                                    178,
+                                    expandedRouteBottom,
+                                  ],
+                                }
+                              ),
+
+                            opacity:
+                              routePanelAnimation,
+
+                            transform: [
+                              {
+                                translateY:
+                                  routePanelAnimation.interpolate(
+                                    {
+                                      inputRange:
+                                        [
+                                          0,
+                                          1,
+                                        ],
+                                      outputRange:
+                                        [
+                                          28,
+                                          0,
+                                        ],
+                                    }
+                                  ),
+                              },
+                              {
+                                scale:
+                                  routePanelAnimation.interpolate(
+                                    {
+                                      inputRange:
+                                        [
+                                          0,
+                                          1,
+                                        ],
+                                      outputRange:
+                                        [
+                                          0.97,
+                                          1,
+                                        ],
+                                    }
+                                  ),
+                              },
+                            ],
+                          },
+                        ]}
+                      >
+                        <View
+                          style={
+                            styles.routeInfoTop
+                          }
+                        >
+                          <View
+                            style={
+                              styles.routeInfoTitleBlock
+                            }
+                          >
+                            <Text
+                              style={
+                                styles.routeInfoTitle
+                              }
+                            >
+                              Route ready
+                            </Text>
+
+                            <Text
+                              style={
+                                styles.routeInfoDestination
+                              }
+                              numberOfLines={
+                                1
+                              }
+                            >
+                              {
+                                destination.name
+                              }
+                            </Text>
+                          </View>
+
+                          <View
+                            style={
+                              styles.routeInfoActions
+                            }
+                          >
+                            <View
+                              style={
+                                styles.routeReadyBadge
+                              }
+                            >
+                              <Ionicons
+                                name="shield-checkmark"
+                                size={
+                                  15
+                                }
+                                color="#20C997"
+                              />
+
+                              <Text
+                                style={
+                                  styles.routeReadyText
+                                }
+                              >
+                                {
+                                  selectedRouteIndex ===
+                                  0
+                                    ? "Recommended"
+                                    : `Route ${
+                                        selectedRouteIndex +
+                                        1
+                                      }`
+                                }
+                              </Text>
+                            </View>
+
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.routeMinimizeButton,
+                                pressed &&
+                                  styles.buttonPressed,
+                              ]}
+                              onPress={() =>
+                                setRoutePanelExpanded(
+                                  false
+                                )
+                              }
+                              accessibilityRole="button"
+                              accessibilityLabel="Close alternative routes"
+                            >
+                              <Ionicons
+                                name="chevron-down"
+                                size={
+                                  18
+                                }
+                                color="#A9BDD1"
+                              />
+                            </Pressable>
+                          </View>
+                        </View>
+
+                        <View
+                          style={
+                            styles.routeStats
+                          }
+                        >
+                          <View
+                            style={
+                              styles.routeStat
+                            }
+                          >
+                            <Text
+                              style={
+                                styles.routeStatValue
+                              }
+                            >
+                              {formatDistance(
+                                routeInfo.distanceMeters
+                              )}
+                            </Text>
+
+                            <Text
+                              style={
+                                styles.routeStatLabel
+                              }
+                            >
+                              Distance
+                            </Text>
+                          </View>
+
+                          <View
+                            style={
+                              styles.routeDivider
+                            }
+                          />
+
+                          <View
+                            style={
+                              styles.routeStat
+                            }
+                          >
+                            <Text
+                              style={
+                                styles.routeStatValue
+                              }
+                            >
+                              {formatDuration(
+                                routeInfo.durationSeconds
+                              )}
+                            </Text>
+
+                            <Text
+                              style={
+                                styles.routeStatLabel
+                              }
+                            >
+                              Estimated
+                            </Text>
+                          </View>
+                        </View>
+
+                        {availableRoutes.length >
+                          1 && (
+                          <View
+                            style={
+                              styles.routeOptions
+                            }
+                          >
+                            {availableRoutes.map(
+                              (
+                                route,
+                                index
+                              ) => {
+                                const selected =
+                                  index ===
+                                  selectedRouteIndex;
+
+                                const comparison =
+                                  index ===
+                                  0
+                                    ? "Recommended"
+                                    : getRouteComparisonLabel(
+                                        route,
+                                        primaryRoute ??
+                                          route
+                                      );
+
+                                return (
+                                  <Pressable
+                                    key={`route-${index}`}
+                                    style={({ pressed }) => [
+                                      styles.routeOption,
+                                      selected &&
+                                        styles.routeOptionSelected,
+                                      pressed &&
+                                        styles.buttonPressed,
+                                    ]}
+                                    onPress={() =>
+                                      handleSelectRoute(
+                                        index
+                                      )
+                                    }
+                                  >
+                                    <View
+                                      style={
+                                        styles.routeOptionLeft
+                                      }
+                                    >
+                                      <View
+                                        style={[
+                                          styles.routeOptionDot,
+                                          selected &&
+                                            styles.routeOptionDotSelected,
+                                        ]}
+                                      />
+
+                                      <View>
+                                        <Text
+                                          style={
+                                            styles.routeOptionTitle
+                                          }
+                                        >
+                                          {index ===
+                                          0
+                                            ? "Main route"
+                                            : `Alternative ${index}`}
+                                        </Text>
+
+                                        <Text
+                                          style={
+                                            styles.routeOptionMeta
+                                          }
+                                        >
+                                          {formatDistance(
+                                            route.distanceMeters
+                                          )}{" "}
+                                          •{" "}
+                                          {formatDuration(
+                                            route.durationSeconds
+                                          )}
+                                        </Text>
+                                      </View>
+                                    </View>
+
+                                    <Text
+                                      style={[
+                                        styles.routeOptionComparison,
+                                        selected &&
+                                          styles.routeOptionComparisonSelected,
+                                      ]}
+                                    >
+                                      {
+                                        comparison
+                                      }
+                                    </Text>
+                                  </Pressable>
+                                );
+                              }
+                            )}
+                          </View>
+                        )}
+                      </Animated.View>
+
+                      {availableRoutes.length >
+                        1 &&
+                        !routePanelExpanded && (
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.alternativesHint,
+                            pressed &&
+                              styles.buttonPressed,
+                          ]}
+                          onPress={() =>
+                            setRoutePanelExpanded(
+                              true
+                            )
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={`${availableRoutes.length - 1} alternative routes available`}
+                        >
+                          <Ionicons
+                            name="git-branch-outline"
+                            size={15}
+                            color="#20C997"
+                          />
+
+                          <Text
+                            style={
+                              styles.alternativesHintText
+                            }
+                          >
+                            {
+                              availableRoutes.length -
+                              1
+                            }{" "}
+                            alternative route
+                            {availableRoutes.length -
+                              1 >
+                            1
+                              ? "s"
+                              : ""}{" "}
+                            available
+                          </Text>
+
+                          <Ionicons
+                            name="chevron-up"
+                            size={14}
+                            color="#71899E"
+                          />
+                        </Pressable>
+                      )}
+                    </>
+                  )}
+              </>
+            )}
+
+            {navigationActive &&
+              navigationPosition && (
+                <View
+                  style={
+                    styles.liveNavigationPill
+                  }
+                >
+                  <View
+                    style={
+                      styles.liveNavigationDot
+                    }
+                  />
+
+                  <Text
+                    style={
+                      styles.liveNavigationText
+                    }
+                  >
+                    LIVE
+                  </Text>
+                </View>
+              )}
+
+            {destination &&
+              !navigationActive &&
+              routeInfo && (
+                <View
+                  style={
+                    styles.destinationActions
+                  }
+                >
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.clearDestinationButton,
+                      pressed &&
+                        styles.buttonPressed,
+                    ]}
+                    onPress={
+                      clearDestination
+                    }
+                  >
+                    <Ionicons
+                      name="close"
+                      size={18}
+                      color="#A9BDD1"
+                    />
+
+                    <Text
+                      style={
+                        styles.clearDestinationText
+                      }
+                    >
+                      Clear
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
+            <NavigationPanel
+              active={
+                navigationActive
+              }
+              arrived={arrived}
+              recalculating={
+                recalculating
+              }
+              currentStep={
+                currentStep
+              }
+              nextStep={
+                nextStep
+              }
+              voiceEnabled={
+                voiceEnabled
+              }
+              nightMode={
+                navigationNightMode
+              }
+              remainingDistanceMeters={
+                remainingDistanceMeters
+              }
+              remainingDurationSeconds={
+                remainingDurationSeconds
+              }
+              onStart={
+                startNavigation
+              }
+              onEnd={
+                stopNavigation
+              }
+              onFinish={
+                finishNavigation
+              }
+              onToggleVoice={
+                toggleVoice
+              }
+              onToggleNightMode={
+                toggleNightMode
+              }
+              onToggleExpanded={() =>
+                setRoutePanelExpanded(
+                  (previous) =>
+                    !previous
+                )
+              }
+              onHeightChange={
+                setNavigationPanelHeight
+              }
+            />
+          </View>
+        </SafeAreaView>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#07111F",
-  },
+const styles =
+  StyleSheet.create({
+    outerScreen: {
+      flex: 1,
+      backgroundColor: "#000000",
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  header: {
-    height: 62,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    backgroundColor: "#07111F",
-    borderBottomWidth: 1,
-    borderBottomColor: "#10283B",
-    zIndex: 50,
-  },
+    appFrame: {
+      width: "100%",
+      height: "100%",
+      backgroundColor: "#07111F",
+      overflow: "hidden",
+    },
 
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    backgroundColor: "#0C1D2E",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    safeArea: {
+      flex: 1,
+      backgroundColor: "#07111F",
+    },
 
-  headerText: {
-    flex: 1,
-    marginLeft: 12,
-  },
+    header: {
+      height: 62,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 14,
+      backgroundColor: "#07111F",
+      borderBottomWidth: 1,
+      borderBottomColor: "#10283B",
+      zIndex: 50,
+    },
 
-  headerTitle: {
-    color: "#FFFFFF",
-    fontSize: 19,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
+    backButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 15,
+      backgroundColor: "#0C1D2E",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  headerSubtitle: {
-    color: "#71889C",
-    fontSize: 11,
-    marginTop: 2,
-    fontWeight: "600",
-  },
+    headerText: {
+      flex: 1,
+      marginLeft: 12,
+    },
 
-  headerLocationButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    backgroundColor: "#0C1D2E",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    headerTitle: {
+      color: "#FFFFFF",
+      fontSize: 19,
+      fontWeight: "800",
+      letterSpacing: -0.3,
+    },
 
-  mapContainer: {
-    flex: 1,
-    position: "relative",
-  },
+    headerSubtitle: {
+      color: "#71889C",
+      fontSize: 11,
+      marginTop: 2,
+      fontWeight: "600",
+    },
 
-  searchContainer: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    top: 10,
-    zIndex: 40,
-    elevation: 20,
-  },
+    headerActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
 
-  travelModeContainer: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    top: 78,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor:
-      "rgba(7,17,31,0.94)",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    flexDirection: "row",
-    padding: 4,
-    zIndex: 25,
-    elevation: 12,
-  },
+    headerLocationButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 15,
+      backgroundColor: "#0C1D2E",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  travelModeButton: {
-    flex: 1,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 5,
-  },
+    headerCompactButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 15,
+      backgroundColor: "#0C1D2E",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  travelModeButtonSelected: {
-    backgroundColor: "#123D38",
-    borderWidth: 1,
-    borderColor: "#20C997",
-  },
+    headerCompactButtonActive: {
+      backgroundColor: "#123D38",
+      borderColor: "#20C997",
+    },
 
-  travelModeIcon: {
-    fontSize: 16,
-    opacity: 0.75,
-  },
+    mapContainer: {
+      flex: 1,
+      position: "relative",
+    },
 
-  travelModeIconSelected: {
-    opacity: 1,
-  },
+    searchContainer: {
+      position: "absolute",
+      left: 14,
+      right: 14,
+      top: 10,
+      zIndex: 40,
+      elevation: 20,
+    },
 
-  travelModeText: {
-    color: "#8197A9",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+    travelModeContainer: {
+      position: "absolute",
+      left: 14,
+      right: 14,
+      top: 78,
+      height: 48,
+      borderRadius: 16,
+      backgroundColor:
+        "rgba(7,17,31,0.94)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      padding: 4,
+      zIndex: 25,
+      elevation: 12,
+    },
 
-  travelModeTextSelected: {
-    color: "#20C997",
-  },
+    travelModeButton: {
+      flex: 1,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 5,
+    },
 
-  locationBadge: {
-    position: "absolute",
-    top: 138,
-    left: 14,
-    height: 32,
-    paddingHorizontal: 11,
-    borderRadius: 12,
-    backgroundColor:
-      "rgba(7,17,31,0.88)",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 15,
-    elevation: 8,
-  },
+    travelModeButtonSelected: {
+      backgroundColor: "#123D38",
+      borderWidth: 1,
+      borderColor: "#20C997",
+    },
 
-  locationDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#20C997",
-    marginRight: 7,
-  },
+    travelModeIcon: {
+      fontSize: 16,
+      opacity: 0.75,
+    },
 
-  locationBadgeText: {
-    color: "#A9BDD1",
-    fontSize: 11,
-    fontWeight: "700",
-  },
+    travelModeIconSelected: {
+      opacity: 1,
+    },
 
-  loadingCard: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 178,
-    height: 50,
-    borderRadius: 16,
-    backgroundColor:
-      "rgba(12,29,46,0.96)",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    zIndex: 25,
-    elevation: 10,
-  },
+    travelModeText: {
+      color: "#8197A9",
+      fontSize: 12,
+      fontWeight: "700",
+    },
 
-  loadingText: {
-    color: "#A9BDD1",
-    fontSize: 13,
-    fontWeight: "600",
-  },
+    travelModeTextSelected: {
+      color: "#20C997",
+    },
 
-  routeLoadingCard: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 180,
-    minHeight: 54,
-    borderRadius: 17,
-    backgroundColor:
-      "rgba(12,29,46,0.97)",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    zIndex: 30,
-    elevation: 12,
-  },
+    locationBadge: {
+      position: "absolute",
+      top: 138,
+      left: 14,
+      height: 32,
+      paddingHorizontal: 11,
+      borderRadius: 12,
+      backgroundColor:
+        "rgba(7,17,31,0.88)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      alignItems: "center",
+      zIndex: 15,
+      elevation: 8,
+    },
 
-  routeLoadingText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
+    locationDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: "#20C997",
+      marginRight: 7,
+    },
 
-  routeInfoCard: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 178,
-    borderRadius: 20,
-    backgroundColor:
-      "rgba(12,29,46,0.97)",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    padding: 16,
-    zIndex: 20,
-    elevation: 10,
-  },
+    locationBadgeText: {
+      color: "#A9BDD1",
+      fontSize: 11,
+      fontWeight: "700",
+    },
 
-  routeInfoTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
+    loadingCard: {
+      position: "absolute",
+      left: 14,
+      right: 14,
+      bottom: 178,
+      height: 50,
+      borderRadius: 16,
+      backgroundColor:
+        "rgba(12,29,46,0.96)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      zIndex: 25,
+      elevation: 10,
+    },
 
-  routeInfoTitleBlock: {
-    flex: 1,
-    marginRight: 10,
-  },
+    loadingText: {
+      color: "#A9BDD1",
+      fontSize: 13,
+      fontWeight: "600",
+    },
 
-  routeInfoActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
+    routeLoadingCard: {
+      position: "absolute",
+      left: 14,
+      right: 14,
+      bottom: 180,
+      minHeight: 54,
+      borderRadius: 17,
+      backgroundColor:
+        "rgba(12,29,46,0.97)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      zIndex: 30,
+      elevation: 12,
+    },
 
-  routeMinimizeButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#10283B",
-    borderWidth: 1,
-    borderColor: "#21415B",
-  },
+    routeLoadingText: {
+      color: "#FFFFFF",
+      fontSize: 13,
+      fontWeight: "700",
+    },
 
-  routeInfoTitle: {
-    color: "#20C997",
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-  },
+    routeInfoCard: {
+      position: "absolute",
+      left: 14,
+      right: 14,
+      maxHeight: 290,
+      borderRadius: 20,
+      backgroundColor:
+        "rgba(12,29,46,0.97)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      padding: 16,
+      zIndex: 35,
+      elevation: 15,
+    },
 
-  routeInfoDestination: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-    marginTop: 3,
-    maxWidth: 235,
-  },
+    routeInfoTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
 
-  routeReadyBadge: {
-    height: 30,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: "#123D38",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
+    routeInfoTitleBlock: {
+      flex: 1,
+      marginRight: 10,
+    },
 
-  routeReadyText: {
-    color: "#20C997",
-    fontSize: 11,
-    fontWeight: "800",
-  },
+    routeInfoActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+    },
 
-  routeStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 15,
-  },
+    routeMinimizeButton: {
+      width: 30,
+      height: 30,
+      borderRadius: 11,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#10283B",
+      borderWidth: 1,
+      borderColor: "#21415B",
+    },
 
-  routeStat: {
-    flex: 1,
-  },
+    routeInfoTitle: {
+      color: "#20C997",
+      fontSize: 12,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.7,
+    },
 
-  routeStatValue: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "800",
-  },
+    routeInfoDestination: {
+      color: "#FFFFFF",
+      fontSize: 16,
+      fontWeight: "800",
+      marginTop: 3,
+      maxWidth: 235,
+    },
 
-  routeStatLabel: {
-    color: "#71899E",
-    fontSize: 10,
-    marginTop: 3,
-    fontWeight: "600",
-  },
+    routeReadyBadge: {
+      height: 30,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+      backgroundColor: "#123D38",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+    },
 
-  routeDivider: {
-    width: 1,
-    height: 31,
-    backgroundColor: "#21415B",
-    marginHorizontal: 14,
-  },
+    routeReadyText: {
+      color: "#20C997",
+      fontSize: 11,
+      fontWeight: "800",
+    },
 
-  liveNavigationPill: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    height: 42,
-    paddingHorizontal: 13,
-    borderRadius: 15,
-    backgroundColor:
-      "rgba(7,17,31,0.94)",
-    borderWidth: 1,
-    borderColor: "#20C997",
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 30,
-    elevation: 12,
-  },
+    routeStats: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: 15,
+    },
 
-  liveNavigationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#20C997",
-    marginRight: 7,
-  },
+    routeStat: {
+      flex: 1,
+    },
 
-  liveNavigationText: {
-    color: "#20C997",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-  },
+    routeStatValue: {
+      color: "#FFFFFF",
+      fontSize: 17,
+      fontWeight: "800",
+    },
 
-  liveNavigationDistance: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "800",
-    marginLeft: 9,
-  },
+    routeStatLabel: {
+      color: "#71899E",
+      fontSize: 10,
+      marginTop: 3,
+      fontWeight: "600",
+    },
 
-  destinationActions: {
-    position: "absolute",
-    right: 14,
-    bottom: 282,
-    zIndex: 20,
-  },
+    routeDivider: {
+      width: 1,
+      height: 31,
+      backgroundColor: "#21415B",
+      marginHorizontal: 14,
+    },
 
-  clearDestinationButton: {
-    bottom: 27,
-    height: 38,
-    paddingHorizontal: 12,
-    borderRadius: 13,
-    backgroundColor:
-      "rgba(12,29,46,0.94)",
-    borderWidth: 1,
-    borderColor: "#21415B",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
+    routeOptions: {
+      marginTop: 14,
+      gap: 7,
+    },
 
-  clearDestinationText: {
-    color: "#A9BDD1",
-    fontSize: 11,
-    fontWeight: "700",
-  },
+    routeOption: {
+      minHeight: 48,
+      borderRadius: 14,
+      backgroundColor: "#0C1D2E",
+      borderWidth: 1,
+      borderColor: "#18344A",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 11,
+      paddingVertical: 8,
+    },
 
-  buttonPressed: {
-    opacity: 0.65,
-    transform: [{ scale: 0.97 }],
-  },
-});
+    routeOptionSelected: {
+      backgroundColor: "#123D38",
+      borderColor: "#20C997",
+    },
+
+    routeOptionLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+    },
+
+    routeOptionDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: "#587086",
+      marginRight: 10,
+    },
+
+    routeOptionDotSelected: {
+      backgroundColor: "#20C997",
+    },
+
+    routeOptionTitle: {
+      color: "#FFFFFF",
+      fontSize: 12,
+      fontWeight: "800",
+    },
+
+    routeOptionMeta: {
+      color: "#71899E",
+      fontSize: 10,
+      fontWeight: "600",
+      marginTop: 2,
+    },
+
+    routeOptionComparison: {
+      color: "#8FA5B7",
+      fontSize: 10,
+      fontWeight: "800",
+      marginLeft: 8,
+    },
+
+    routeOptionComparisonSelected: {
+      color: "#20C997",
+    },
+
+    alternativesHint: {
+      position: "absolute",
+      left: 14,
+      bottom: 306,
+      height: 36,
+      paddingHorizontal: 11,
+      borderRadius: 12,
+      backgroundColor:
+        "rgba(7,17,31,0.94)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      zIndex: 34,
+      elevation: 12,
+    },
+
+    alternativesHintText: {
+      color: "#A9BDD1",
+      fontSize: 10,
+      fontWeight: "800",
+    },
+
+    liveNavigationPill: {
+      position: "absolute",
+      top: 14,
+      left: 14,
+      height: 42,
+      width: 67,
+      paddingHorizontal: 13,
+      borderRadius: 15,
+      backgroundColor:
+        "rgba(7,17,31,0.94)",
+      borderWidth: 1,
+      borderColor: "#20C997",
+      flexDirection: "row",
+      alignItems: "center",
+      zIndex: 30,
+      elevation: 12,
+    },
+
+    liveNavigationDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: "#20C997",
+      marginRight: 7,
+    },
+
+    liveNavigationText: {
+      color: "#20C997",
+      fontSize: 10,
+      fontWeight: "900",
+      letterSpacing: 0.7,
+    },
+
+    destinationActions: {
+      position: "absolute",
+      right: 14,
+      bottom: 278,
+      zIndex: 20,
+    },
+
+    clearDestinationButton: {
+      bottom: 27,
+      height: 38,
+      paddingHorizontal: 12,
+      borderRadius: 13,
+      backgroundColor:
+        "rgba(12,29,46,0.94)",
+      borderWidth: 1,
+      borderColor: "#21415B",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+    },
+
+    clearDestinationText: {
+      color: "#A9BDD1",
+      fontSize: 11,
+      fontWeight: "700",
+    },
+
+    buttonPressed: {
+      opacity: 0.65,
+      transform: [
+        {
+          scale: 0.97,
+        },
+      ],
+    },
+  });
