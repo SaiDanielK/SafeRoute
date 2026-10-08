@@ -2,163 +2,120 @@ import {
   SafetyRouteInput,
   SafetyScore,
   SafetyFactor,
+  SafetyFactorName,
 } from "./safetyTypes";
 
-const DEFAULT_FACTORS = {
-  pedestrianInfrastructure: 75,
-  roadRisk: 75,
-  trafficRisk: 75,
-  communityReports: 80,
-  hazards: 85,
-  lighting: 75,
-  timeOfDay: 80,
-};
+const FACTORS: Array<{
+  name: SafetyFactorName;
+  weight: number;
+  fallbackScore: number;
+}> = [
+  { name: "lighting", weight: 0.2, fallbackScore: 50 },
+  { name: "pedestrianAccess", weight: 0.2, fallbackScore: 50 },
+  { name: "traffic", weight: 0.2, fallbackScore: 50 },
+  { name: "hazards", weight: 0.2, fallbackScore: 50 },
+  { name: "routeInfrastructure", weight: 0.2, fallbackScore: 50 },
+];
 
-const WEIGHTS = {
-  pedestrianInfrastructure: 0.20,
-  roadRisk: 0.18,
-  trafficRisk: 0.15,
-  communityReports: 0.15,
-  hazards: 0.15,
-  lighting: 0.10,
-  timeOfDay: 0.07,
+const INPUTS: Record<
+  SafetyFactorName,
+  {
+    score: keyof SafetyRouteInput;
+    coverage: keyof SafetyRouteInput;
+    explanation: keyof SafetyRouteInput;
+    fallbackExplanation: string;
+  }
+> = {
+  lighting: {
+    score: "lighting",
+    coverage: "lightingCoverage",
+    explanation: "lightingExplanation",
+    fallbackExplanation: "Lighting is a day/night estimate; mapped streetlight data is not connected.",
+  },
+  pedestrianAccess: {
+    score: "pedestrianAccess",
+    coverage: "pedestrianAccessCoverage",
+    explanation: "pedestrianAccessExplanation",
+    fallbackExplanation: "Pedestrian access uses ORS route-way classifications where available.",
+  },
+  traffic: {
+    score: "traffic",
+    coverage: "trafficCoverage",
+    explanation: "trafficExplanation",
+    fallbackExplanation: "Traffic uses sampled TomTom flow data where available.",
+  },
+  hazards: {
+    score: "hazards",
+    coverage: "hazardsCoverage",
+    explanation: "hazardsExplanation",
+    fallbackExplanation: "Neutral hazard estimate until a community report feed is connected.",
+  },
+  routeInfrastructure: {
+    score: "routeInfrastructure",
+    coverage: "routeInfrastructureCoverage",
+    explanation: "routeInfrastructureExplanation",
+    fallbackExplanation: "Infrastructure uses ORS route-way classifications where available.",
+  },
 };
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, score));
 }
 
-function getLabel(score: number): SafetyScore["label"] {
-  if (score >= 90) return "Very Safe";
-  if (score >= 80) return "Safer";
-  if (score >= 65) return "Moderate";
-  if (score >= 50) return "Caution";
-
-  return "High Caution";
-}
-
-function createExplanation(
-  score: number,
-  factors: SafetyFactor[]
-): string {
-  const strongestFactors = [...factors]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 2);
-
-  const weakestFactor = [...factors].sort(
-    (a, b) => a.score - b.score
-  )[0];
-
-  const strongText = strongestFactors
-    .map((factor) => factor.explanation)
-    .join(" ");
-
-  return `This route has a safety score of ${score}/100. ${strongText} The factor needing the most attention is ${weakestFactor.name}.`;
-}
-
 export function calculateSafetyScore(
   input: SafetyRouteInput
 ): SafetyScore {
-  const values = {
-    pedestrianInfrastructure:
-      input.pedestrianInfrastructure ??
-      DEFAULT_FACTORS.pedestrianInfrastructure,
+  const factors: SafetyFactor[] = FACTORS.map((factor) => {
+    const inputKeys = INPUTS[factor.name];
+    const rawScore = input[inputKeys.score];
+    const rawCoverage = input[inputKeys.coverage];
+    const rawExplanation = input[inputKeys.explanation];
+    const score =
+      typeof rawScore === "number" && Number.isFinite(rawScore)
+        ? clampScore(rawScore)
+        : factor.fallbackScore;
+    const coverage =
+      typeof rawCoverage === "number" && Number.isFinite(rawCoverage)
+        ? clampScore(rawCoverage)
+        : typeof rawScore === "number" && Number.isFinite(rawScore)
+          ? 100
+          : 0;
 
-    roadRisk:
-      input.roadRisk ??
-      DEFAULT_FACTORS.roadRisk,
-
-    trafficRisk:
-      input.trafficRisk ??
-      DEFAULT_FACTORS.trafficRisk,
-
-    communityReports:
-      input.communityReports ??
-      DEFAULT_FACTORS.communityReports,
-
-    hazards:
-      input.hazards ??
-      DEFAULT_FACTORS.hazards,
-
-    lighting:
-      input.lighting ??
-      DEFAULT_FACTORS.lighting,
-
-    timeOfDay:
-      input.timeOfDay ??
-      DEFAULT_FACTORS.timeOfDay,
-  };
-
-  const factors: SafetyFactor[] = [
-    {
-      name: "pedestrianInfrastructure",
-      score: clampScore(values.pedestrianInfrastructure),
-      weight: WEIGHTS.pedestrianInfrastructure,
+    return {
+      name: factor.name,
+      score,
+      weight: factor.weight,
+      coverage,
       explanation:
-        "Pedestrian infrastructure contributes positively to route safety.",
-    },
+        typeof rawExplanation === "string"
+          ? rawExplanation
+          : inputKeys.fallbackExplanation,
+    };
+  });
 
-    {
-      name: "roadRisk",
-      score: clampScore(values.roadRisk),
-      weight: WEIGHTS.roadRisk,
-      explanation:
-        "Road characteristics were considered when calculating the route score.",
-    },
-
-    {
-      name: "trafficRisk",
-      score: clampScore(values.trafficRisk),
-      weight: WEIGHTS.trafficRisk,
-      explanation:
-        "Traffic conditions are included in the safety calculation.",
-    },
-
-    {
-      name: "communityReports",
-      score: clampScore(values.communityReports),
-      weight: WEIGHTS.communityReports,
-      explanation:
-        "Community safety reports contribute to the route assessment.",
-    },
-
-    {
-      name: "hazards",
-      score: clampScore(values.hazards),
-      weight: WEIGHTS.hazards,
-      explanation:
-        "Known hazards along the route affect the safety assessment.",
-    },
-
-    {
-      name: "lighting",
-      score: clampScore(values.lighting),
-      weight: WEIGHTS.lighting,
-      explanation:
-        "Lighting conditions can affect how suitable a route is, especially at night.",
-    },
-
-    {
-      name: "timeOfDay",
-      score: clampScore(values.timeOfDay),
-      weight: WEIGHTS.timeOfDay,
-      explanation:
-        "The time of day is considered when evaluating route conditions.",
-    },
-  ];
-
-  const weightedScore = factors.reduce(
-    (total, factor) =>
-      total + factor.score * factor.weight,
-    0
+  const score = Math.round(
+    factors.reduce(
+      (total, factor) => total + factor.score * factor.weight,
+      0
+    )
   );
-
-  const score = Math.round(clampScore(weightedScore));
+  const dataCoverage = Math.round(
+    factors.reduce(
+      (total, factor) => total + factor.coverage * factor.weight,
+      0
+    )
+  );
+  const explanation =
+    `Estimated route score ${score}/100. ${dataCoverage}% of factor weight uses mapped or live data; the remainder uses disclosed estimates.`;
 
   return {
     score,
-    label: getLabel(score),
+    label:
+      dataCoverage >= 50
+        ? "Data-informed"
+        : "Estimated",
+    dataCoverage,
     factors,
-    explanation: createExplanation(score, factors),
+    explanation,
   };
 }

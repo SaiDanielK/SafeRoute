@@ -1,12 +1,18 @@
 import React, {
   useEffect,
   useRef,
+  useState,
 } from "react";
 
 import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -18,6 +24,10 @@ import MapView, {
 
 import { Ionicons } from "@expo/vector-icons";
 
+import {
+  TrafficRouteSegment,
+} from "../services/trafficService";
+
 type Destination = {
   name: string;
   address: string;
@@ -25,7 +35,7 @@ type Destination = {
   longitude: number;
 };
 
-type RouteCoordinate = {
+export type RouteCoordinate = {
   latitude: number;
   longitude: number;
 };
@@ -69,6 +79,14 @@ type SafeRouteMapProps = {
   threeDEnabled?: boolean;
 
   onToggle3D?: () => void;
+
+  onUseDroppedPin?: (
+    coordinate: RouteCoordinate
+  ) => void;
+
+  onPinPlaced?: () => void;
+
+  trafficSegments?: TrafficRouteSegment[];
 };
 
 function metersPerSecondToMph(
@@ -97,11 +115,8 @@ function formatSpeedLimit(
   speedLimit: number | null | undefined
 ): string {
   if (
-    typeof speedLimit !==
-      "number" ||
-    !Number.isFinite(
-      speedLimit
-    ) ||
+    typeof speedLimit !== "number" ||
+    !Number.isFinite(speedLimit) ||
     speedLimit <= 0
   ) {
     return "-- mph";
@@ -110,6 +125,217 @@ function formatSpeedLimit(
   return `${Math.round(
     speedLimit
   )} mph`;
+}
+
+function pointToSegmentDistance(
+  point: RouteCoordinate,
+  start: RouteCoordinate,
+  end: RouteCoordinate
+): number {
+  const latitudeScale =
+    Math.cos(
+      (point.latitude * Math.PI) / 180
+    );
+
+  const pointX = 0;
+  const pointY = 0;
+
+  const startX =
+    (start.longitude -
+      point.longitude) *
+    latitudeScale;
+
+  const startY =
+    start.latitude -
+    point.latitude;
+
+  const endX =
+    (end.longitude -
+      point.longitude) *
+    latitudeScale;
+
+  const endY =
+    end.latitude -
+    point.latitude;
+
+  const dx =
+    endX - startX;
+
+  const dy =
+    endY - startY;
+
+  const segmentLengthSquared =
+    dx * dx + dy * dy;
+
+  if (segmentLengthSquared === 0) {
+    return Math.sqrt(
+      startX * startX +
+        startY * startY
+    );
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((pointX - startX) * dx +
+        (pointY - startY) * dy) /
+        segmentLengthSquared
+    )
+  );
+
+  const projectionX =
+    startX + t * dx;
+
+  const projectionY =
+    startY + t * dy;
+
+  const differenceX =
+    pointX - projectionX;
+
+  const differenceY =
+    pointY - projectionY;
+
+  return Math.sqrt(
+    differenceX * differenceX +
+      differenceY * differenceY
+  );
+}
+
+function distanceFromPointToRoute(
+  point: RouteCoordinate,
+  route: RouteCoordinate[]
+): number {
+  if (route.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (route.length === 1) {
+    const latitudeScale =
+      Math.cos(
+        (point.latitude * Math.PI) /
+          180
+      );
+
+    const longitudeDifference =
+      (route[0].longitude -
+        point.longitude) *
+      latitudeScale;
+
+    const latitudeDifference =
+      route[0].latitude -
+      point.latitude;
+
+    return Math.sqrt(
+      longitudeDifference *
+        longitudeDifference +
+        latitudeDifference *
+          latitudeDifference
+    );
+  }
+
+  let minimumDistance =
+    Number.POSITIVE_INFINITY;
+
+  for (
+    let index = 0;
+    index < route.length - 1;
+    index += 1
+  ) {
+    const distance =
+      pointToSegmentDistance(
+        point,
+        route[index],
+        route[index + 1]
+      );
+
+    if (
+      distance <
+      minimumDistance
+    ) {
+      minimumDistance = distance;
+    }
+  }
+
+  return minimumDistance;
+}
+
+type RouteHit = {
+  index: number;
+  distance: number;
+};
+
+function findTappedRoutes(
+  coordinate: RouteCoordinate,
+  routes: RouteCoordinate[][]
+): RouteHit[] {
+  const TAP_TOLERANCE_DEGREES =
+    0.00065;
+
+  const routeHits: RouteHit[] = [];
+
+  routes.forEach(
+    (
+      route,
+      routeIndex
+    ) => {
+      if (route.length < 2) {
+        return;
+      }
+
+      const distance =
+        distanceFromPointToRoute(
+          coordinate,
+          route
+        );
+
+      if (
+        distance >
+        TAP_TOLERANCE_DEGREES
+      ) {
+        return;
+      }
+
+      routeHits.push({
+        index: routeIndex,
+        distance,
+      });
+    }
+  );
+
+  if (routeHits.length === 0) {
+    return [];
+  }
+
+  routeHits.sort(
+    (a, b) => a.distance - b.distance
+  );
+
+  const closestDistance =
+    routeHits[0]?.distance ??
+    Number.POSITIVE_INFINITY;
+
+  return routeHits.filter(
+    (hit) =>
+      hit.distance <=
+      closestDistance + 0.00004
+  );
+}
+
+function getTrafficColor(
+  color: TrafficRouteSegment["color"]
+): string {
+  switch (color) {
+    case "yellow":
+      return "#F5B700";
+
+    case "red":
+      return "#EF4444";
+
+    case "blue":
+    default:
+      return "#007AFF";
+  }
 }
 
 export default function SafeRouteMap({
@@ -127,6 +353,9 @@ export default function SafeRouteMap({
   onFollowUserChange,
   threeDEnabled = false,
   onToggle3D,
+  onUseDroppedPin,
+  onPinPlaced,
+  trafficSegments = [],
 }: SafeRouteMapProps) {
   const mapRef =
     useRef<MapView>(null);
@@ -136,6 +365,29 @@ export default function SafeRouteMap({
 
   const previousNavigationActiveRef =
     useRef(false);
+
+  const [
+    droppedPin,
+    setDroppedPin,
+  ] = useState<RouteCoordinate | null>(
+    null
+  );
+
+  const [pinMode, setPinMode] =
+    useState(false);
+
+  const [
+    coordinateModalVisible,
+    setCoordinateModalVisible,
+  ] = useState(false);
+
+  const [coordinateInput, setCoordinateInput] =
+    useState("");
+
+  const [
+    satelliteMode,
+    setSatelliteMode,
+  ] = useState(false);
 
   const NAVIGATION_ZOOM = 19.5;
 
@@ -147,13 +399,12 @@ export default function SafeRouteMap({
 
   const NORMAL_ZOOM = 15;
 
-  const defaultRegion: Region =
-    {
-      latitude: 34.0522,
-      longitude: -118.2437,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
-    };
+  const defaultRegion: Region = {
+    latitude: 34.0522,
+    longitude: -118.2437,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  };
 
   const mapRegion =
     region ?? defaultRegion;
@@ -298,9 +549,7 @@ export default function SafeRouteMap({
     previousNavigationActiveRef.current =
       navigationActive;
 
-    if (
-      !navigationJustStarted
-    ) {
+    if (!navigationJustStarted) {
       return;
     }
 
@@ -460,6 +709,189 @@ export default function SafeRouteMap({
     );
   }, [threeDEnabled]);
 
+  function placePin(
+    latitude: number,
+    longitude: number
+  ) {
+    const coordinate = {
+      latitude,
+      longitude,
+    };
+
+    setDroppedPin(coordinate);
+    setPinMode(false);
+    onPinPlaced?.();
+
+    mapRef.current?.animateCamera(
+      {
+        center: coordinate,
+        zoom: NORMAL_ZOOM,
+      },
+      {
+        duration: 500,
+      }
+    );
+  }
+
+  function handleMapPress(
+    event: any
+  ) {
+    const coordinate =
+      event.nativeEvent.coordinate;
+
+    if (
+      typeof coordinate?.latitude !==
+        "number" ||
+      typeof coordinate?.longitude !==
+        "number"
+    ) {
+      return;
+    }
+
+    if (
+      pinMode &&
+      !navigationActive
+    ) {
+      placePin(
+        coordinate.latitude,
+        coordinate.longitude
+      );
+      return;
+    }
+
+    if (
+      !navigationActive &&
+      alternativeRoutes.length > 0
+    ) {
+      const tappedRoutes =
+        findTappedRoutes(
+          {
+            latitude:
+              coordinate.latitude,
+            longitude:
+              coordinate.longitude,
+          },
+          alternativeRoutes
+        );
+
+      if (tappedRoutes.length > 0) {
+        const selectedPosition =
+          tappedRoutes.findIndex(
+            (route) =>
+              route.index ===
+              selectedRouteIndex
+          );
+        const nextPosition =
+          selectedPosition < 0
+            ? 0
+            : (selectedPosition + 1) %
+              tappedRoutes.length;
+        const tappedRoute =
+          tappedRoutes[nextPosition];
+
+        if (!tappedRoute) {
+          return;
+        }
+
+        onSelectRoute?.(
+          tappedRoute.index
+        );
+        return;
+      }
+    }
+  }
+
+  function openCoordinateEntry() {
+    if (droppedPin) {
+      setCoordinateInput(
+        `${droppedPin.latitude}, ${droppedPin.longitude}`
+      );
+    } else {
+      setCoordinateInput("");
+    }
+
+    setCoordinateModalVisible(
+      true
+    );
+  }
+
+  function submitCoordinates() {
+    const coordinateParts = coordinateInput
+      .trim()
+      .replace(/[()]/g, "")
+      .split(/[\s,]+/)
+      .filter(Boolean);
+
+    if (coordinateParts.length !== 2) {
+      Alert.alert(
+        "Enter two coordinates",
+        "Paste or enter latitude and longitude, separated by a comma."
+      );
+      return;
+    }
+
+    const latitude = Number(coordinateParts[0]);
+    const longitude = Number(coordinateParts[1]);
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude)
+    ) {
+      Alert.alert(
+        "Invalid coordinates",
+        "Please enter valid numbers for latitude and longitude."
+      );
+      return;
+    }
+
+    if (
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      Alert.alert(
+        "Invalid latitude",
+        "Latitude must be between -90 and 90."
+      );
+      return;
+    }
+
+    if (
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      Alert.alert(
+        "Invalid longitude",
+        "Longitude must be between -180 and 180."
+      );
+      return;
+    }
+
+    setCoordinateModalVisible(
+      false
+    );
+
+    placePin(
+      latitude,
+      longitude
+    );
+  }
+
+  function removeDroppedPin() {
+    setDroppedPin(null);
+    setPinMode(false);
+  }
+
+  function useDroppedPin() {
+    if (!droppedPin) {
+      return;
+    }
+
+    onUseDroppedPin?.(
+      droppedPin
+    );
+    setDroppedPin(null);
+  }
+
   function recenterMap() {
     const position =
       getCameraPosition();
@@ -540,15 +972,9 @@ export default function SafeRouteMap({
     }
   }
 
-  function handleAlternativePress(
-    index: number
-  ) {
-    if (navigationActive) {
-      return;
-    }
-
-    onSelectRoute?.(
-      index
+  function toggleSatellite() {
+    setSatelliteMode(
+      (current) => !current
     );
   }
 
@@ -558,6 +984,11 @@ export default function SafeRouteMap({
         ref={mapRef}
         style={styles.map}
         initialRegion={mapRegion}
+        mapType={
+          satelliteMode
+            ? "satellite"
+            : "standard"
+        }
         userInterfaceStyle={
           navigationNightMode
             ? "dark"
@@ -569,9 +1000,7 @@ export default function SafeRouteMap({
         showsBuildings={
           threeDEnabled
         }
-        showsPointsOfInterests={
-          true
-        }
+        showsPointsOfInterests={true}
         showsTraffic={false}
         rotateEnabled={true}
         pitchEnabled={true}
@@ -588,57 +1017,35 @@ export default function SafeRouteMap({
         onPanDrag={
           handleMapPan
         }
+        onPress={
+          handleMapPress
+        }
       >
-        {/*
-         * Draw alternatives first so the
-         * currently selected route stays
-         * visually on top.
-         */}
         {!navigationActive &&
           alternativeRoutes.map(
             (
               coordinates,
-              alternativeIndex
+              routeIndex
             ) => {
-              const routeIndex =
-                alternativeIndex +
-                1;
-
-              const selected =
-                selectedRouteIndex ===
-                routeIndex;
+              if (
+                routeIndex ===
+                selectedRouteIndex
+              ) {
+                return null;
+              }
 
               return (
                 <Polyline
-                  key={`alternative-route-${routeIndex}`}
+                  key={`route-${routeIndex}`}
                   coordinates={
                     coordinates
                   }
-                  strokeWidth={
-                    selected
-                      ? 7
-                      : 5
-                  }
-                  strokeColor={
-                    selected
-                      ? "#20C997"
-                      : "#7B91A4"
-                  }
+                  strokeWidth={5}
+                  strokeColor="#7B91A4"
                   lineCap="round"
                   lineJoin="round"
-                  tappable={
-                    true
-                  }
-                  onPress={() =>
-                    handleAlternativePress(
-                      routeIndex
-                    )
-                  }
-                  zIndex={
-                    selected
-                      ? 3
-                      : 1
-                  }
+                  tappable={false}
+                  zIndex={1}
                 />
               );
             }
@@ -652,21 +1059,49 @@ export default function SafeRouteMap({
             }
             strokeWidth={
               navigationActive
-                ? 7
-                : 6
+                ? 8
+                : 7
             }
-            strokeColor="#20C997"
+            strokeColor="#2563eb"
             lineCap="round"
             lineJoin="round"
-            tappable={!navigationActive}
-            onPress={() =>
-              handleAlternativePress(
-                0
-              )
-            }
-            zIndex={5}
+            tappable={false}
+            zIndex={9}
           />
         )}
+
+        {navigationActive &&
+          trafficSegments.length > 0 &&
+          trafficSegments.map(
+            (
+              segment,
+              index
+            ) => {
+              if (
+                segment.coordinates
+                  .length < 2
+              ) {
+                return null;
+              }
+
+              return (
+                <Polyline
+                  key={`traffic-${index}`}
+                  coordinates={
+                    segment.coordinates
+                  }
+                  strokeWidth={7}
+                  strokeColor={getTrafficColor(
+                    segment.color
+                  )}
+                  lineCap="round"
+                  lineJoin="round"
+                  tappable={false}
+                  zIndex={10}
+                />
+              );
+            }
+          )}
 
         {region &&
           !navigationActive && (
@@ -697,9 +1132,7 @@ export default function SafeRouteMap({
               y: 0.5,
             }}
             flat={true}
-            tracksViewChanges={
-              false
-            }
+            tracksViewChanges={false}
             rotation={
               getHeading()
             }
@@ -745,7 +1178,212 @@ export default function SafeRouteMap({
             pinColor="#20C997"
           />
         )}
+
+        {droppedPin && (
+          <Marker
+            coordinate={
+              droppedPin
+            }
+            title="Dropped Pin"
+            description={`${droppedPin.latitude.toFixed(
+              6
+            )}, ${droppedPin.longitude.toFixed(
+              6
+            )}`}
+            pinColor="#FFB020"
+          />
+        )}
       </MapView>
+
+      {pinMode && (
+        <View
+          style={
+            styles.pinModeBanner
+          }
+        >
+          <View
+            style={
+              styles.pinModeBannerContent
+            }
+          >
+            <Ionicons
+              name="location"
+              size={18}
+              color="#1A73E8"
+            />
+
+            <Text
+              style={
+                styles.pinModeText
+              }
+            >
+              Tap anywhere to drop a pin
+            </Text>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Enter coordinates"
+            style={({ pressed }) => [
+              styles.pinModeCoordinateButton,
+              pressed &&
+                styles.mapControlPressed,
+            ]}
+            onPress={
+              openCoordinateEntry
+            }
+          >
+            <Ionicons
+              name="keypad-outline"
+              size={16}
+              color="#20C997"
+            />
+
+            <Text
+              style={
+                styles.pinModeCoordinateText
+              }
+            >
+              Coordinates
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {droppedPin && !pinMode && (
+        <View
+          style={
+            styles.droppedPinCard
+          }
+        >
+          <View
+            style={
+              styles.droppedPinHeader
+            }
+          >
+            <View
+              style={
+                styles.droppedPinIcon
+              }
+            >
+              <Ionicons
+                name="location"
+                size={18}
+                color="#FFB020"
+              />
+            </View>
+
+            <View
+              style={
+                styles.droppedPinTitleContainer
+              }
+            >
+              <Text
+                style={
+                  styles.droppedPinTitle
+                }
+              >
+                Dropped Pin
+              </Text>
+
+              <Text
+                style={
+                  styles.droppedPinCoordinates
+                }
+              >
+                {droppedPin.latitude.toFixed(
+                  6
+                )}
+                {", "}
+                {droppedPin.longitude.toFixed(
+                  6
+                )}
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={
+              styles.pinCardButtons
+            }
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Route to dropped pin"
+              style={({ pressed }) => [
+                styles.pinCardButton,
+                styles.pinCardPrimary,
+                pressed &&
+                  styles.mapControlPressed,
+              ]}
+              onPress={
+                useDroppedPin
+              }
+            >
+              <Ionicons
+                name="navigate"
+                size={16}
+                color="#FFFFFF"
+              />
+
+              <Text
+                style={
+                  styles.pinCardPrimaryText
+                }
+              >
+                Route here
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Edit dropped pin coordinates"
+              style={({ pressed }) => [
+                styles.pinCardButton,
+                styles.pinCardSecondary,
+                pressed &&
+                  styles.mapControlPressed,
+              ]}
+              onPress={
+                openCoordinateEntry
+              }
+            >
+              <Ionicons
+                name="create-outline"
+                size={16}
+                color="#1A73E8"
+              />
+
+              <Text
+                style={
+                  styles.pinCardSecondaryText
+                }
+              >
+                Edit
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Remove dropped pin"
+              style={({ pressed }) => [
+                styles.pinCardDelete,
+                pressed &&
+                  styles.mapControlPressed,
+              ]}
+              onPress={
+                removeDroppedPin
+              }
+            >
+              <Ionicons
+                name="trash-outline"
+                size={17}
+                color="#FF6B6B"
+              />
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <View
         style={[
@@ -756,6 +1394,8 @@ export default function SafeRouteMap({
         ]}
       >
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Center map on my location"
           style={({ pressed }) => [
             styles.mapControl,
             pressed &&
@@ -774,13 +1414,99 @@ export default function SafeRouteMap({
             size={21}
             color={
               followUser
-                ? "#20C997"
-                : "#FFFFFF"
+                ? "#1A73E8"
+                : "#5F6368"
+            }
+          />
+        </Pressable>
+
+        {!navigationActive && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={pinMode ? "Cancel pin placement" : "Drop a pin"}
+            style={({ pressed }) => [
+              styles.mapControl,
+              pinMode &&
+                styles.mapControlActive,
+              pressed &&
+                styles.mapControlPressed,
+            ]}
+            onPress={() => {
+              setPinMode(
+                (previous) =>
+                  !previous
+              );
+            }}
+          >
+            <Ionicons
+              name={
+                pinMode
+                  ? "close"
+                  : "location-outline"
+              }
+              size={21}
+              color={
+                pinMode
+                  ? "#1A73E8"
+                  : "#5F6368"
+              }
+            />
+          </Pressable>
+        )}
+
+        {!navigationActive && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Enter coordinates"
+            style={({ pressed }) => [
+              styles.mapControl,
+              pressed &&
+                styles.mapControlPressed,
+            ]}
+            onPress={
+              openCoordinateEntry
+            }
+          >
+            <Ionicons
+              name="keypad-outline"
+              size={20}
+              color="#5F6368"
+            />
+          </Pressable>
+        )}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={satelliteMode ? "Show standard map" : "Show satellite map"}
+          style={({ pressed }) => [
+            styles.mapControl,
+            satelliteMode &&
+              styles.mapControlActive,
+            pressed &&
+              styles.mapControlPressed,
+          ]}
+          onPress={
+            toggleSatellite
+          }
+        >
+          <Ionicons
+            name={
+              satelliteMode
+                ? "earth"
+                : "map-outline"
+            }
+            size={21}
+            color={
+              satelliteMode
+                ? "#1A73E8"
+                : "#5F6368"
             }
           />
         </Pressable>
 
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={threeDEnabled ? "Turn off 3D map" : "Turn on 3D map"}
           style={({ pressed }) => [
             styles.mapControl,
             threeDEnabled &&
@@ -880,6 +1606,150 @@ export default function SafeRouteMap({
           ]}
         />
       )}
+
+      <Modal
+        visible={
+          coordinateModalVisible
+        }
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() =>
+          setCoordinateModalVisible(
+            false
+          )
+        }
+      >
+        <KeyboardAvoidingView
+          style={
+            styles.modalOverlay
+          }
+          behavior={
+            Platform.OS === "ios"
+              ? "padding"
+              : "height"
+          }
+        >
+          <View
+            style={
+              styles.coordinateModal
+            }
+          >
+            <View
+              style={
+                styles.coordinateModalHeader
+              }
+            >
+              <View
+                style={
+                  styles.coordinateModalIcon
+                }
+              >
+                <Ionicons
+                  name="location"
+                  size={22}
+                  color="#1A73E8"
+                />
+              </View>
+
+              <View
+                style={
+                  styles.coordinateModalTitleContainer
+                }
+              >
+                <Text
+                  style={
+                    styles.coordinateModalTitle
+                  }
+                >
+                  Set a pin by coordinates
+                </Text>
+
+                <Text
+                  style={
+                    styles.coordinateModalSubtitle
+                  }
+                >
+                  Paste a coordinate pair from any map
+                </Text>
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close coordinate entry"
+                onPress={() =>
+                  setCoordinateModalVisible(
+                    false
+                  )
+                }
+                style={
+                  styles.modalCloseButton
+                }
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color="#5F6368"
+                />
+              </Pressable>
+            </View>
+
+            <TextInput
+              accessibilityLabel="Latitude and longitude"
+              value={
+                coordinateInput
+              }
+              onChangeText={
+                setCoordinateInput
+              }
+              placeholder="37.7749, -122.4194"
+              placeholderTextColor="#60798D"
+              keyboardType="numbers-and-punctuation"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={submitCoordinates}
+              style={
+                styles.coordinateInput
+              }
+            />
+
+            <Text
+              style={
+                styles.coordinateHint
+              }
+            >
+              Enter latitude, longitude. Example: 37.7749, -122.4194{"\n"}
+              Latitude: -90 to 90 · Longitude: -180 to 180
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.placePinButton,
+                pressed &&
+                  styles.mapControlPressed,
+              ]}
+              onPress={
+                submitCoordinates
+              }
+            >
+              <Ionicons
+                name="location"
+                size={18}
+                color="#FFFFFF"
+              />
+
+              <Text
+                style={
+                  styles.placePinButtonText
+                }
+              >
+                Place Pin
+              </Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -899,7 +1769,7 @@ const styles =
     mapControls: {
       position: "absolute",
       right: 14,
-      zIndex: 20,
+      zIndex: 40,
       gap: 9,
     },
 
@@ -914,11 +1784,10 @@ const styles =
     mapControl: {
       width: 46,
       height: 46,
-      borderRadius: 16,
-      backgroundColor:
-        "rgba(12,29,46,0.94)",
+      borderRadius: 14,
+      backgroundColor: "#FFFFFF",
       borderWidth: 1,
-      borderColor: "#294963",
+      borderColor: "#DADCE0",
       alignItems: "center",
       justifyContent: "center",
       shadowColor: "#000",
@@ -926,16 +1795,14 @@ const styles =
         width: 0,
         height: 4,
       },
-      shadowOpacity: 0.25,
-      shadowRadius: 9,
-      elevation: 8,
+      shadowOpacity: 0.16,
+      shadowRadius: 7,
+      elevation: 5,
     },
 
     mapControlActive: {
-      backgroundColor:
-        "#123D38",
-      borderColor:
-        "#20C997",
+      backgroundColor: "#E8F0FE",
+      borderColor: "#C6DAFC",
     },
 
     mapControlPressed: {
@@ -948,14 +1815,177 @@ const styles =
     },
 
     threeDText: {
-      color: "#FFFFFF",
+      color: "#5F6368",
       fontSize: 13,
       fontWeight: "900",
-      letterSpacing: -0.2,
     },
 
     threeDTextActive: {
-      color: "#20C997",
+      color: "#1A73E8",
+    },
+
+    pinModeBanner: {
+      position: "absolute",
+      top: 132,
+      left: 14,
+      right: 70,
+      minHeight: 48,
+      borderRadius: 15,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#DADCE0",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingLeft: 14,
+      paddingRight: 7,
+      zIndex: 45,
+      elevation: 15,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 9,
+    },
+
+    pinModeBannerContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      gap: 8,
+    },
+
+    pinModeText: {
+      color: "#202124",
+      fontSize: 12,
+      fontWeight: "800",
+    },
+
+    pinModeCoordinateButton: {
+      height: 36,
+      paddingHorizontal: 10,
+      borderRadius: 11,
+      backgroundColor: "#E8F0FE",
+      borderWidth: 1,
+      borderColor: "#D2E3FC",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+    },
+
+    pinModeCoordinateText: {
+      color: "#1A73E8",
+      fontSize: 10,
+      fontWeight: "900",
+    },
+
+    droppedPinCard: {
+      position: "absolute",
+      left: 14,
+      right: 14,
+      bottom: 108,
+      borderRadius: 18,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#DADCE0",
+      padding: 14,
+      zIndex: 35,
+      elevation: 14,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 5,
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+    },
+
+    droppedPinHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+
+    droppedPinIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor:
+        "rgba(255,176,32,0.12)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 10,
+    },
+
+    droppedPinTitleContainer: {
+      flex: 1,
+    },
+
+    droppedPinTitle: {
+      color: "#202124",
+      fontSize: 15,
+      fontWeight: "900",
+    },
+
+    droppedPinCoordinates: {
+      color: "#5F6368",
+      fontSize: 11,
+      fontWeight: "600",
+      marginTop: 2,
+    },
+
+    pinCardButtons: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 12,
+    },
+
+    pinCardButton: {
+      height: 42,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+    },
+
+    pinCardPrimary: {
+      flex: 1,
+      backgroundColor: "#1A73E8",
+    },
+
+    pinCardPrimaryText: {
+      color: "#FFFFFF",
+      fontSize: 11,
+      fontWeight: "900",
+    },
+
+    pinCardSecondary: {
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#DADCE0",
+    },
+
+    pinCardSecondaryText: {
+      color: "#1A73E8",
+      fontSize: 11,
+      fontWeight: "800",
+    },
+
+    pinCardDelete: {
+      width: 42,
+      height: 42,
+      borderRadius: 12,
+      backgroundColor:
+        "rgba(255,107,107,0.08)",
+      borderWidth: 1,
+      borderColor:
+        "rgba(255,107,107,0.25)",
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     liveMarker: {
@@ -1041,14 +2071,14 @@ const styles =
     },
 
     speedValue: {
-      color: "#FFFFFF",
+      color: "#e5e8ef",
       fontSize: 17,
       fontWeight: "900",
       letterSpacing: -0.3,
     },
 
     speedLabel: {
-      color: "#71899E",
+      color: "#5F6368",
       fontSize: 8,
       fontWeight: "800",
       letterSpacing: 0.6,
@@ -1075,4 +2105,118 @@ const styles =
       backgroundColor:
         "rgba(0,0,0,0.08)",
     },
+
+    modalOverlay: {
+      flex: 1,
+      backgroundColor:
+        "rgba(32,33,36,0.42)",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    },
+
+    coordinateModal: {
+      width: "100%",
+      maxWidth: 430,
+      borderRadius: 20,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#DADCE0",
+      padding: 20,
+      elevation: 20,
+      shadowColor: "#000",
+      shadowOffset: {
+        width: 0,
+        height: 8,
+      },
+      shadowOpacity: 0.22,
+      shadowRadius: 18,
+    },
+
+    coordinateModalHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 22,
+    },
+
+    coordinateModalIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      backgroundColor: "#E8F0FE",
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 11,
+    },
+
+    coordinateModalTitleContainer: {
+      flex: 1,
+    },
+
+    coordinateModalTitle: {
+      color: "#202124",
+      fontSize: 18,
+      fontWeight: "900",
+    },
+
+    coordinateModalSubtitle: {
+      color: "#5F6368",
+      fontSize: 11,
+      fontWeight: "600",
+      marginTop: 3,
+    },
+
+    modalCloseButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: "#F1F3F4",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    coordinateLabel: {
+      color: "#5F6368",
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 0.8,
+      marginBottom: 7,
+    },
+
+    coordinateInput: {
+      height: 48,
+      borderRadius: 13,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#DADCE0",
+      color: "#202124",
+      paddingHorizontal: 14,
+      fontSize: 15,
+      fontWeight: "700",
+      marginBottom: 16,
+    },
+
+    coordinateHint: {
+      color: "#5F6368",
+      fontSize: 10,
+      lineHeight: 15,
+      marginBottom: 16,
+    },
+
+    placePinButton: {
+      height: 50,
+      borderRadius: 14,
+      backgroundColor: "#1A73E8",
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 7,
+    },
+
+    placePinButtonText: {
+      color: "#FFFFFF",
+      fontSize: 14,
+      fontWeight: "900",
+    },
   });
+  

@@ -1,3 +1,4 @@
+
 import { router } from "expo-router";
 import {
   Pressable,
@@ -7,7 +8,7 @@ import {
   View,
 } from "react-native";
 
-export default function HomeScreen() {
+export default function WelcomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -15,35 +16,20 @@ export default function HomeScreen() {
           <Text style={styles.logo}>🛡️</Text>
         </View>
 
-        <Text style={styles.title}>SafeRoute</Text>
+        <Text style={styles.title}>Welcome to SafeRoute!</Text>
 
         <Text style={styles.subtitle}>
           Navigation that thinks about your safety.
         </Text>
 
-        <View style={styles.card}>
-          <View style={styles.cardIcon}>
-            <Text style={styles.cardIconText}>🗺️</Text>
-          </View>
-
-          <View style={styles.cardContent}>
-            <Text style={styles.cardTitle}>Safer navigation</Text>
-
-            <Text style={styles.cardDescription}>
-              Find routes based on more than just speed. SafeRoute will
-              consider safety information, hazards, and your travel conditions.
-            </Text>
-          </View>
-        </View>
-
         <Pressable
           style={({ pressed }) => [
-            styles.primaryButton,
+            styles.button,
             pressed && styles.buttonPressed,
           ]}
-          onPress={() => router.push("/map")}
+          onPress={() => router.push("/auth")}
         >
-          <Text style={styles.primaryButtonText}>Open Map</Text>
+          <Text style={styles.buttonText}>Get Started</Text>
           <Text style={styles.arrow}>→</Text>
         </Pressable>
 
@@ -63,91 +49,52 @@ const styles = StyleSheet.create({
 
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
     justifyContent: "center",
+    alignItems: "center",
   },
 
   logoCircle: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: "#102A43",
     borderWidth: 1,
     borderColor: "#1E496D",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 22,
+    marginBottom: 28,
   },
 
   logo: {
-    fontSize: 38,
+    fontSize: 45,
   },
 
   title: {
     color: "#FFFFFF",
-    fontSize: 42,
+    fontSize: 35,
     fontWeight: "800",
-    letterSpacing: -1.5,
+    textAlign: "center",
+    letterSpacing: -1,
   },
 
   subtitle: {
     color: "#A9BDD1",
-    fontSize: 18,
-    lineHeight: 27,
-    marginTop: 8,
-    marginBottom: 34,
-    maxWidth: 340,
-  },
-
-  card: {
-    flexDirection: "row",
-    backgroundColor: "#0C1D2E",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#173650",
-    padding: 18,
-    marginBottom: 18,
-  },
-
-  cardIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "#123451",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-  },
-
-  cardIconText: {
-    fontSize: 24,
-  },
-
-  cardContent: {
-    flex: 1,
-  },
-
-  cardTitle: {
-    color: "#FFFFFF",
     fontSize: 17,
-    fontWeight: "700",
-    marginBottom: 5,
+    lineHeight: 26,
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 42,
   },
 
-  cardDescription: {
-    color: "#8FA8BD",
-    fontSize: 14,
-    lineHeight: 21,
-  },
-
-  primaryButton: {
+  button: {
+    width: "100%",
     height: 60,
     borderRadius: 18,
     backgroundColor: "#20C997",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 22,
   },
 
   buttonPressed: {
@@ -155,7 +102,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
 
-  primaryButtonText: {
+  buttonText: {
     color: "#04110D",
     fontSize: 17,
     fontWeight: "800",
@@ -172,6 +119,6 @@ const styles = StyleSheet.create({
     color: "#617B91",
     textAlign: "center",
     fontSize: 12,
-    marginTop: 28,
+    marginTop: 30,
   },
 });

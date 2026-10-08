@@ -378,7 +378,7 @@ export default function DestinationSearch({
           <Ionicons
             name="search"
             size={20}
-            color="#20C997"
+            color="#2563eb"
           />
         </View>
 
@@ -389,7 +389,7 @@ export default function DestinationSearch({
             handleChangeText
           }
           placeholder="Where are you going?"
-          placeholderTextColor="#71889C"
+          placeholderTextColor="#64748b"
           returnKeyType="search"
           onSubmitEditing={
             handleSubmit
@@ -424,7 +424,7 @@ export default function DestinationSearch({
             <Ionicons
               name="close"
               size={18}
-              color="#A9BDD1"
+              color="#64748b"
             />
           </Pressable>
         ) : null}
@@ -444,7 +444,7 @@ export default function DestinationSearch({
           <Ionicons
             name="search"
             size={19}
-            color="#04110D"
+            color="#ffffff"
           />
         </Pressable>
       </View>
@@ -535,10 +535,10 @@ const styles =
 
     searchRow: {
       height: 58,
-      borderRadius: 19,
-      backgroundColor: "#0C1D2E",
+      borderRadius: 14,
+      backgroundColor: "#ffffff",
       borderWidth: 1,
-      borderColor: "#21415B",
+      borderColor: "#bfdbfe",
       flexDirection: "row",
       alignItems: "center",
       paddingLeft: 9,
@@ -549,17 +549,17 @@ const styles =
         width: 0,
         height: 5,
       },
-      shadowOpacity: 0.2,
-      shadowRadius: 12,
-      elevation: 8,
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 5,
     },
 
     searchIconContainer: {
       width: 40,
       height: 40,
-      borderRadius: 13,
+      borderRadius: 10,
       backgroundColor:
-        "#123451",
+        "#eff6ff",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -567,7 +567,7 @@ const styles =
     input: {
       flex: 1,
       height: "100%",
-      color: "#FFFFFF",
+      color: "#0f172a",
       fontSize: 15,
       fontWeight: "600",
       paddingHorizontal: 12,
@@ -585,7 +585,7 @@ const styles =
       height: 32,
       borderRadius: 16,
       backgroundColor:
-        "#1A3043",
+        "#eff6ff",
       alignItems: "center",
       justifyContent: "center",
       marginRight: 5,
@@ -600,16 +600,16 @@ const styles =
       height: 42,
       borderRadius: 14,
       backgroundColor:
-        "#20C997",
+        "#2563eb",
       alignItems: "center",
       justifyContent: "center",
 
-      shadowColor: "#20C997",
+      shadowColor: "#2563eb",
       shadowOffset: {
         width: 0,
         height: 3,
       },
-      shadowOpacity: 0.2,
+      shadowOpacity: 0.14,
       shadowRadius: 6,
       elevation: 4,
     },
@@ -624,10 +624,10 @@ const styles =
     results: {
       marginTop: 8,
       backgroundColor:
-        "#0C1D2E",
-      borderRadius: 18,
+        "#ffffff",
+      borderRadius: 14,
       borderWidth: 1,
-      borderColor: "#21415B",
+      borderColor: "#bfdbfe",
       overflow: "hidden",
 
       shadowColor: "#000",
@@ -635,8 +635,8 @@ const styles =
         width: 0,
         height: 8,
       },
-      shadowOpacity: 0.25,
-      shadowRadius: 16,
+      shadowOpacity: 0.14,
+      shadowRadius: 10,
       elevation: 12,
     },
 
@@ -647,7 +647,7 @@ const styles =
       alignItems: "center",
       borderBottomWidth: 1,
       borderBottomColor:
-        "#173650",
+        "#e2e8f0",
     },
 
     lastResult: {
@@ -656,7 +656,7 @@ const styles =
 
     resultPressed: {
       backgroundColor:
-        "#112A3E",
+        "#eff6ff",
     },
 
     resultIcon: {
@@ -664,7 +664,7 @@ const styles =
       height: 40,
       borderRadius: 13,
       backgroundColor:
-        "#123451",
+        "#eff6ff",
       alignItems: "center",
       justifyContent: "center",
       marginRight: 11,
@@ -675,13 +675,13 @@ const styles =
     },
 
     resultName: {
-      color: "#FFFFFF",
+      color: "#0f172a",
       fontSize: 14,
       fontWeight: "700",
     },
 
     resultAddress: {
-      color: "#71899E",
+      color: "#64748b",
       fontSize: 11,
       marginTop: 4,
     },
