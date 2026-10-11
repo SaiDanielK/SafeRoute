@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -7,22 +8,82 @@ import {
   Text,
   View,
 } from "react-native";
-import { router } from "expo-router";
-import MapView, { Marker, PROVIDER_DEFAULT, Region } from "react-native-maps";
+import { router, useFocusEffect } from "expo-router";
+import MapView, {
+  Marker,
+  PROVIDER_DEFAULT,
+  Region,
+} from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+
+import {
+  getRecentTrips,
+  type RecentTrip,
+} from "../../../src/services/tripHistoryService";
+
+import {
+  getCurrentLocationSafetyScore,
+} from "../../../src/services/safety/locationSafetyService";
+
+import type {
+  SafetyScore,
+} from "../../../src/services/safety/safetyTypes";
 
 export default function HomeScreen() {
   const [location, setLocation] =
     useState<Location.LocationObject | null>(null);
 
-  const [mapRegion, setMapRegion] = useState<Region | null>(null);
+  const [mapRegion, setMapRegion] =
+    useState<Region | null>(null);
 
-  const [locationLoading, setLocationLoading] = useState(true);
+  const [locationLoading, setLocationLoading] =
+    useState(true);
 
   const [locationPermissionDenied, setLocationPermissionDenied] =
     useState(false);
 
+  const [recentTrips, setRecentTrips] =
+    useState<RecentTrip[]>([]);
+
+  const [tripsLoading, setTripsLoading] =
+    useState(true);
+
+  const [tripsError, setTripsError] =
+    useState(false);
+
+  const [safetyScore, setSafetyScore] =
+    useState<SafetyScore | null>(null);
+
+  const [safetyLoading, setSafetyLoading] =
+    useState(false);
+
+  const [safetyError, setSafetyError] =
+    useState(false);
+
+  const loadRecentTrips = useCallback(async () => {
+    setTripsLoading(true);
+    setTripsError(false);
+
+    try {
+      const trips = await getRecentTrips(5);
+      setRecentTrips(trips);
+    } catch (error) {
+      console.error("Unable to load recent trips:", error);
+      setTripsError(true);
+    } finally {
+      setTripsLoading(false);
+    }
+  }, []);
+
+  // Refresh trip history whenever Home becomes active.
+  useFocusEffect(
+    useCallback(() => {
+      void loadRecentTrips();
+    }, [loadRecentTrips])
+  );
+
+  // Get the user's current GPS location.
   useEffect(() => {
     let mounted = true;
 
@@ -38,7 +99,6 @@ export default function HomeScreen() {
             setLocationPermissionDenied(true);
             setLocationLoading(false);
           }
-
           return;
         }
 
@@ -74,12 +134,61 @@ export default function HomeScreen() {
       }
     };
 
-    getCurrentLocation();
+    void getCurrentLocation();
 
     return () => {
       mounted = false;
     };
   }, []);
+
+  // Calculate a safety score for a nearby walking route
+  // starting from the user's actual GPS coordinates.
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSafetyScore = async () => {
+      if (!location) {
+        setSafetyScore(null);
+        setSafetyError(false);
+        setSafetyLoading(false);
+        return;
+      }
+
+      setSafetyLoading(true);
+      setSafetyError(false);
+
+      try {
+        const result = await getCurrentLocationSafetyScore({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+
+        if (mounted) {
+          setSafetyScore(result);
+        }
+      } catch (error) {
+        console.error(
+          "Unable to calculate current-location safety:",
+          error
+        );
+
+        if (mounted) {
+          setSafetyScore(null);
+          setSafetyError(true);
+        }
+      } finally {
+        if (mounted) {
+          setSafetyLoading(false);
+        }
+      }
+    };
+
+    void loadSafetyScore();
+
+    return () => {
+      mounted = false;
+    };
+  }, [location]);
 
   const openMap = () => {
     router.push("/map");
@@ -98,6 +207,151 @@ export default function HomeScreen() {
     });
   };
 
+  const retryLocation = async () => {
+    try {
+      setLocationPermissionDenied(false);
+      setLocationLoading(true);
+
+      const { status } =
+        await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        setLocationPermissionDenied(true);
+        return;
+      }
+
+      const currentLocation =
+        await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+      setLocation(currentLocation);
+
+      setMapRegion({
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+        latitudeDelta: 0.012,
+        longitudeDelta: 0.012,
+      });
+    } catch (error) {
+      console.log("Location retry error:", error);
+      setLocationPermissionDenied(true);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const formatDistance = (meters: number) => {
+    const miles = meters / 1609.344;
+
+    if (!Number.isFinite(miles) || miles < 0) {
+      return "Distance unavailable";
+    }
+
+    return `${miles.toFixed(1)} mi`;
+  };
+
+  const formatDuration = (seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      return "Time unavailable";
+    }
+
+    const minutes = Math.round(seconds / 60);
+
+    if (minutes < 1) {
+      return "<1 min";
+    }
+
+    if (minutes < 60) {
+      return `${minutes} min`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+
+    return remainingMinutes === 0
+      ? `${hours} hr`
+      : `${hours} hr ${remainingMinutes} min`;
+  };
+
+  const getTripIcon = (
+    travelMode: string
+  ): keyof typeof Ionicons.glyphMap => {
+    if (travelMode.includes("cycling")) {
+      return "bicycle";
+    }
+
+    if (travelMode.includes("driving")) {
+      return "car";
+    }
+
+    return "walk";
+  };
+
+  const getTripIconColor = (travelMode: string) => {
+    if (travelMode.includes("cycling")) {
+      return "#4DA3FF";
+    }
+
+    if (travelMode.includes("driving")) {
+      return "#FFC857";
+    }
+
+    return "#55D68A";
+  };
+
+  const currentScore = safetyScore?.score ?? null;
+
+  const hasEnoughSafetyData =
+    safetyScore !== null &&
+    safetyScore.dataCoverage >= 20;
+
+  const safetyStatusTitle = safetyLoading
+    ? "Checking nearby safety..."
+    : !location
+      ? locationLoading
+        ? "Finding your location..."
+        : "Location unavailable"
+      : safetyError || currentScore === null
+        ? "Safety score unavailable"
+        : !hasEnoughSafetyData
+          ? "Safety data is limited"
+          : currentScore >= 70
+            ? "You're in a safe area"
+            : currentScore <= 40
+              ? "You're in a dangerous area"
+              : "Use caution in this area";
+
+  const safetyStatusColor =
+    currentScore === null || !hasEnoughSafetyData
+      ? "#91A4BB"
+      : currentScore >= 70
+        ? "#55D68A"
+        : currentScore <= 40
+          ? "#FF6B6B"
+          : "#FFC857";
+
+  const safetyStatusIcon: keyof typeof Ionicons.glyphMap =
+    currentScore !== null &&
+    hasEnoughSafetyData &&
+    currentScore <= 40
+      ? "warning"
+      : currentScore !== null &&
+          hasEnoughSafetyData &&
+          currentScore >= 70
+        ? "shield-checkmark"
+        : "shield-outline";
+
+  const safetyStatusSubtitle = safetyLoading
+    ? "Assessing a nearby walking route"
+    : safetyError
+      ? "Check your connection and try again"
+      : !location
+        ? "Enable location access to assess a nearby route"
+        : currentScore === null
+          ? "No current assessment available"
+          : `Nearby walking-route estimate · ${safetyScore?.dataCoverage ?? 0}% data coverage`;
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -108,51 +362,93 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.eyebrow}>SAFEROUTE</Text>
-            <Text style={styles.greeting}>Stay safe out there.</Text>
+            <Text style={styles.greeting}>
+              Stay safe out there.
+            </Text>
           </View>
 
           <Pressable
             style={styles.profileButton}
             onPress={() => router.push("/profile")}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
           >
-            <Ionicons name="person" size={20} color="#FFFFFF" />
+            <Ionicons
+              name="person"
+              size={20}
+              color="#FFFFFF"
+            />
           </Pressable>
         </View>
 
-        {/* Safety Status */}
+        {/* Current Location Safety */}
         <View style={styles.statusCard}>
-          <View style={styles.statusIcon}>
-            <Ionicons
-              name="shield-checkmark"
-              size={27}
-              color="#55D68A"
-            />
+          <View
+            style={[
+              styles.statusIcon,
+              {
+                backgroundColor: `${safetyStatusColor}20`,
+              },
+            ]}
+          >
+            {safetyLoading ? (
+              <ActivityIndicator
+                size="small"
+                color={safetyStatusColor}
+              />
+            ) : (
+              <Ionicons
+                name={safetyStatusIcon}
+                size={27}
+                color={safetyStatusColor}
+              />
+            )}
           </View>
 
           <View style={styles.statusTextContainer}>
-            <Text style={styles.statusLabel}>CURRENT SAFETY</Text>
+            <Text style={styles.statusLabel}>
+              CURRENT SAFETY
+            </Text>
 
             <Text style={styles.statusTitle}>
-              You're in a safe area
+              {safetyStatusTitle}
             </Text>
 
             <Text style={styles.statusSubtitle}>
-              No major hazards reported nearby
+              {safetyStatusSubtitle}
             </Text>
           </View>
 
           <View style={styles.scoreContainer}>
-            <Text style={styles.score}>92</Text>
-            <Text style={styles.scoreLabel}>/100</Text>
+            <Text
+              style={[
+                styles.score,
+                { color: safetyStatusColor },
+              ]}
+            >
+              {safetyLoading
+                ? "..."
+                : currentScore !== null
+                  ? currentScore
+                  : "—"}
+            </Text>
+
+            <Text style={styles.scoreLabel}>
+              /100
+            </Text>
           </View>
         </View>
 
         {/* Map Preview */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Your area</Text>
+          <Text style={styles.sectionTitle}>
+            Your area
+          </Text>
 
           <Pressable onPress={openMap}>
-            <Text style={styles.viewMap}>Open map</Text>
+            <Text style={styles.viewMap}>
+              Open map
+            </Text>
           </Pressable>
         </View>
 
@@ -181,7 +477,9 @@ export default function HomeScreen() {
                   description="Your current location"
                 >
                   <View style={styles.locationMarker}>
-                    <View style={styles.locationMarkerInner} />
+                    <View
+                      style={styles.locationMarkerInner}
+                    />
                   </View>
                 </Marker>
               )}
@@ -213,51 +511,7 @@ export default function HomeScreen() {
 
                   <Pressable
                     style={styles.locationRetryButton}
-                    onPress={() => {
-                      setLocationPermissionDenied(false);
-                      setLocationLoading(true);
-
-                      Location.requestForegroundPermissionsAsync()
-                        .then(({ status }) => {
-                          if (status !== "granted") {
-                            setLocationPermissionDenied(true);
-                            setLocationLoading(false);
-                            return;
-                          }
-
-                          return Location.getCurrentPositionAsync({
-                            accuracy: Location.Accuracy.Balanced,
-                          });
-                        })
-                        .then((currentLocation) => {
-                          if (!currentLocation) {
-                            return;
-                          }
-
-                          setLocation(currentLocation);
-
-                          setMapRegion({
-                            latitude:
-                              currentLocation.coords.latitude,
-                            longitude:
-                              currentLocation.coords.longitude,
-                            latitudeDelta: 0.012,
-                            longitudeDelta: 0.012,
-                          });
-
-                          setLocationPermissionDenied(false);
-                          setLocationLoading(false);
-                        })
-                        .catch((error) => {
-                          console.log(
-                            "Location retry error:",
-                            error
-                          );
-
-                          setLocationPermissionDenied(true);
-                          setLocationLoading(false);
-                        });
-                    }}
+                    onPress={retryLocation}
                   >
                     <Text style={styles.locationRetryText}>
                       Try again
@@ -277,7 +531,8 @@ export default function HomeScreen() {
             <Pressable
               style={[
                 styles.recenterButton,
-                !location && styles.recenterButtonDisabled,
+                !location &&
+                  styles.recenterButtonDisabled,
               ]}
               onPress={recenterMap}
               disabled={!location}
@@ -312,7 +567,12 @@ export default function HomeScreen() {
         </View>
 
         {/* Quick Actions */}
-        <Text style={[styles.sectionTitle, styles.quickTitle]}>
+        <Text
+          style={[
+            styles.sectionTitle,
+            styles.quickTitle,
+          ]}
+        >
           Quick actions
         </Text>
 
@@ -329,7 +589,9 @@ export default function HomeScreen() {
               />
             </View>
 
-            <Text style={styles.actionTitle}>Start a trip</Text>
+            <Text style={styles.actionTitle}>
+              Start a trip
+            </Text>
 
             <Text style={styles.actionSubtitle}>
               Find a safer route
@@ -348,7 +610,9 @@ export default function HomeScreen() {
               />
             </View>
 
-            <Text style={styles.actionTitle}>Safety alerts</Text>
+            <Text style={styles.actionTitle}>
+              Safety alerts
+            </Text>
 
             <Text style={styles.actionSubtitle}>
               Check your area
@@ -367,7 +631,9 @@ export default function HomeScreen() {
               />
             </View>
 
-            <Text style={styles.actionTitle}>My trips</Text>
+            <Text style={styles.actionTitle}>
+              My trips
+            </Text>
 
             <Text style={styles.actionSubtitle}>
               View trip history
@@ -391,7 +657,9 @@ export default function HomeScreen() {
               />
             </View>
 
-            <Text style={styles.actionTitle}>Emergency</Text>
+            <Text style={styles.actionTitle}>
+              Emergency
+            </Text>
 
             <Text style={styles.actionSubtitle}>
               Get help quickly
@@ -401,64 +669,152 @@ export default function HomeScreen() {
 
         {/* Recent Trips */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent trips</Text>
+          <Text style={styles.sectionTitle}>
+            Recent trips
+          </Text>
 
           <Pressable
             onPress={() => router.push("/trips")}
           >
-            <Text style={styles.viewMap}>See all</Text>
+            <Text style={styles.viewMap}>
+              See all
+            </Text>
           </Pressable>
         </View>
 
-        <Pressable style={styles.tripCard}>
-          <View style={styles.tripIcon}>
-            <Ionicons
-              name="walk"
-              size={21}
-              color="#55D68A"
-            />
-          </View>
-
-          <View style={styles.tripInfo}>
-            <Text style={styles.tripTitle}>
-              Home → School
-            </Text>
-
-            <Text style={styles.tripDetails}>
-              1.4 mi • 29 min
-            </Text>
-          </View>
-
-          <View style={styles.tripScore}>
-            <Text style={styles.tripScoreNumber}>92</Text>
-            <Text style={styles.tripScoreLabel}>SAFE</Text>
-          </View>
-        </Pressable>
-
-        <Pressable style={styles.tripCard}>
-          <View style={styles.tripIcon}>
-            <Ionicons
-              name="bicycle"
-              size={21}
+        {tripsLoading ? (
+          <View style={styles.tripsMessageCard}>
+            <ActivityIndicator
+              size="small"
               color="#4DA3FF"
             />
-          </View>
 
-          <View style={styles.tripInfo}>
-            <Text style={styles.tripTitle}>
-              Home → Library
-            </Text>
-
-            <Text style={styles.tripDetails}>
-              2.1 mi • 12 min
+            <Text style={styles.tripsMessageText}>
+              Loading your recent trips...
             </Text>
           </View>
+        ) : tripsError ? (
+          <View style={styles.tripsMessageCard}>
+            <View style={styles.emptyTripsIcon}>
+              <Ionicons
+                name="cloud-offline-outline"
+                size={25}
+                color="#FFC857"
+              />
+            </View>
 
-          <View style={styles.tripScore}>
-            <Text style={styles.tripScoreNumber}>87</Text>
-            <Text style={styles.tripScoreLabel}>SAFE</Text>
+            <Text style={styles.emptyTripsTitle}>
+              Couldn't load trips
+            </Text>
+
+            <Text style={styles.tripsMessageText}>
+              Check your connection and try again.
+            </Text>
+
+            <Pressable
+              style={styles.retryTripsButton}
+              onPress={() => void loadRecentTrips()}
+            >
+              <Ionicons
+                name="refresh"
+                size={16}
+                color="#FFFFFF"
+              />
+
+              <Text style={styles.retryTripsText}>
+                Try again
+              </Text>
+            </Pressable>
           </View>
-        </Pressable>
+        ) : recentTrips.length === 0 ? (
+          <View style={styles.tripsMessageCard}>
+            <View style={styles.emptyTripsIcon}>
+              <Ionicons
+                name="footsteps-outline"
+                size={27}
+                color="#4DA3FF"
+              />
+            </View>
+
+            <Text style={styles.emptyTripsTitle}>
+              No completed trips yet
+            </Text>
+
+            <Text style={styles.tripsMessageText}>
+              Your completed journeys will appear here.
+              Start a trip and arrive at your destination
+              to build your history.
+            </Text>
+
+            <Pressable
+              style={styles.startTripButton}
+              onPress={openMap}
+            >
+              <Ionicons
+                name="navigate"
+                size={17}
+                color="#FFFFFF"
+              />
+
+              <Text style={styles.startTripButtonText}>
+                Start your first trip
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          recentTrips.map((trip) => (
+            <Pressable
+              key={trip.id}
+              style={styles.tripCard}
+              onPress={() => router.push("/trips")}
+              accessibilityRole="button"
+              accessibilityLabel={`Trip from ${trip.originName} to ${trip.destinationName}`}
+            >
+              <View style={styles.tripIcon}>
+                <Ionicons
+                  name={getTripIcon(trip.travelMode)}
+                  size={21}
+                  color={getTripIconColor(trip.travelMode)}
+                />
+              </View>
+
+              <View style={styles.tripInfo}>
+                <Text
+                  style={styles.tripTitle}
+                  numberOfLines={1}
+                >
+                  {trip.originName} → {trip.destinationName}
+                </Text>
+
+                <Text style={styles.tripDetails}>
+                  {formatDistance(trip.distanceMeters)}
+                  {" • "}
+                  {formatDuration(trip.durationSeconds)}
+                </Text>
+              </View>
+
+              <View style={styles.tripScore}>
+                <Text
+                  style={[
+                    styles.tripScoreNumber,
+                    trip.safetyScore == null &&
+                      styles.tripScoreUnavailable,
+                  ]}
+                >
+                  {trip.safetyScore != null
+                    ? trip.safetyScore
+                    : "—"}
+                </Text>
+
+                <Text style={styles.tripScoreLabel}>
+                  {trip.safetyScore != null
+                    ? "SCORE"
+                    : "N/A"}
+                </Text>
+              </View>
+            </Pressable>
+          ))
+        )}
 
         {/* Emergency Banner */}
         <Pressable
@@ -505,7 +861,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 64,
-    paddingBottom: 30,
+    paddingBottom: 70,
   },
 
   header: {
@@ -555,7 +911,6 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "#123426",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 13,
@@ -591,7 +946,6 @@ const styles = StyleSheet.create({
   },
 
   score: {
-    color: "#55D68A",
     fontSize: 24,
     fontWeight: "900",
   },
@@ -640,6 +994,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#102338",
+    padding: 16,
   },
 
   mapLoadingText: {
@@ -685,8 +1040,8 @@ const styles = StyleSheet.create({
 
   recenterButton: {
     position: "absolute",
-    right: 337,
-    bottom: 175,
+    right: 14,
+    top: 14,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -782,6 +1137,79 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
+  tripsMessageCard: {
+    backgroundColor: "#0E1D30",
+    borderRadius: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#1D334F",
+  },
+
+  emptyTripsIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: "#12263F",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+
+  emptyTripsTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 7,
+  },
+
+  tripsMessageText: {
+    color: "#8195AA",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+
+  startTripButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#287FD1",
+    paddingHorizontal: 17,
+    paddingVertical: 11,
+    borderRadius: 13,
+    marginTop: 17,
+  },
+
+  startTripButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  retryTripsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#183652",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 15,
+  },
+
+  retryTripsText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
   tripCard: {
     backgroundColor: "#0E1D30",
     borderRadius: 18,
@@ -805,6 +1233,7 @@ const styles = StyleSheet.create({
 
   tripInfo: {
     flex: 1,
+    marginRight: 8,
   },
 
   tripTitle: {
@@ -821,12 +1250,17 @@ const styles = StyleSheet.create({
 
   tripScore: {
     alignItems: "center",
+    minWidth: 35,
   },
 
   tripScoreNumber: {
     color: "#55D68A",
     fontSize: 17,
     fontWeight: "900",
+  },
+
+  tripScoreUnavailable: {
+    color: "#8195AA",
   },
 
   tripScoreLabel: {

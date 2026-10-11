@@ -14,8 +14,9 @@ import {
   StyleSheet,
   Text,
   View,
+  useColorScheme,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,7 +24,10 @@ import { Region } from "react-native-maps";
 
 import SafeRouteMap from "../components/SafeRouteMap";
 import DestinationSearch from "../components/DestinationSearch";
-import NavigationPanel from "../components/NavigationPanel";
+import NavigationPanel, {
+  type NavigationPreviewStep,
+} from "../components/NavigationPanel";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
   getRoute,
@@ -33,6 +37,7 @@ import {
 } from "../services/routeService";
 
 import { getSpeedLimit } from "../services/speedLimitService";
+import { getRecentHazards, type CommunityHazard } from "../services/hazardService";
 
 import {
   calculateSafetyScore,
@@ -56,6 +61,8 @@ import {
 import {
   formatDuration,
 } from "../utils/formatters";
+
+import { saveCompletedTrip } from "../services/tripHistoryService";
 
 type TravelMode =
   | "driving-car"
@@ -114,6 +121,8 @@ const VOICE_ADVANCE_DRIVING = 250;
 const COMPACT_SCREEN_RATIO = 0.99;
 
 const TRAFFIC_REFRESH_MS = 60000;
+
+const PROFILE_SETTINGS_KEY = "@saferoute_profile_settings";
 
 const toRadians = (value: number) =>
   (value * Math.PI) / 180;
@@ -339,43 +348,230 @@ function speak(text: string) {
   });
 }
 
+const HAZARD_ROUTE_SEARCH_RADIUS_METERS = 300;
+
+type HazardImpact = {
+  score: number;
+  coverage: number;
+  explanation: string;
+  nearbyCount: number;
+  penalty: number;
+};
+
+function getDistanceToRouteSegmentMeters(
+  point: RouteCoordinate,
+  start: RouteCoordinate,
+  end: RouteCoordinate
+): number {
+  const latitudeScale = Math.cos(toRadians(point.latitude));
+  const startX = (start.longitude - point.longitude) * latitudeScale * 111320;
+  const startY = (start.latitude - point.latitude) * 111320;
+  const endX = (end.longitude - point.longitude) * latitudeScale * 111320;
+  const endY = (end.latitude - point.latitude) * 111320;
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    return Math.sqrt(startX * startX + startY * startY);
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(1, -(startX * dx + startY * dy) / lengthSquared)
+  );
+  const closestX = startX + t * dx;
+  const closestY = startY + t * dy;
+
+  return Math.sqrt(closestX * closestX + closestY * closestY);
+}
+
+function getDistanceToRouteMeters(
+  point: RouteCoordinate,
+  route: RouteCoordinate[]
+): number {
+  if (!route.length) return Number.POSITIVE_INFINITY;
+  if (route.length === 1) {
+    const latitudeDifference = (route[0].latitude - point.latitude) * 111320;
+    const longitudeDifference =
+      (route[0].longitude - point.longitude) *
+      111320 *
+      Math.cos(toRadians(point.latitude));
+    return Math.sqrt(
+      latitudeDifference * latitudeDifference +
+      longitudeDifference * longitudeDifference
+    );
+  }
+
+  let minimum = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < route.length - 1; index += 1) {
+    minimum = Math.min(
+      minimum,
+      getDistanceToRouteSegmentMeters(point, route[index], route[index + 1])
+    );
+  }
+  return minimum;
+}
+
+function getHazardTimestamp(value: unknown): number | null {
+  try {
+    if (
+      value &&
+      typeof value === "object" &&
+      "toDate" in value &&
+      typeof (value as { toDate?: unknown }).toDate === "function"
+    ) {
+      const date = (value as { toDate: () => Date }).toDate();
+      const timestamp = date.getTime();
+      return Number.isFinite(timestamp) ? timestamp : null;
+    }
+
+    if (value instanceof Date) {
+      const timestamp = value.getTime();
+      return Number.isFinite(timestamp) ? timestamp : null;
+    }
+
+    if (typeof value === "string" || typeof value === "number") {
+      const timestamp = new Date(value).getTime();
+      return Number.isFinite(timestamp) ? timestamp : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getHazardSeverity(type: string): number {
+  switch (type) {
+    case "road_closed": return 46;
+    case "flooding": return 38;
+    case "accident": return 32;
+    case "unsafe_area": return 28;
+    case "debris": return 23;
+    case "construction": return 17;
+    case "traffic": return 12;
+    default: return 10;
+  }
+}
+
+function getHazardAlertLabel(type: string): string {
+  switch (type) {
+    case "road_closed": return "Road closure";
+    case "flooding": return "Flooding";
+    case "accident": return "Accident";
+    case "unsafe_area": return "Unsafe area";
+    case "debris": return "Road debris";
+    case "construction": return "Construction";
+    case "traffic": return "Traffic";
+    default: return "Reported hazard";
+  }
+}
+
+function getHazardRecencyMultiplier(createdAt: unknown): number {
+  const timestamp = getHazardTimestamp(createdAt);
+  if (timestamp === null) return 0.5;
+
+  const ageDays = Math.max(0, Date.now() - timestamp) / 86400000;
+  if (ageDays <= 1) return 1;
+  if (ageDays <= 7) return 0.85;
+  if (ageDays <= 30) return 0.6;
+  return 0.3;
+}
+
+function getRouteHazardImpact(
+  route: RouteResult,
+  communityHazards: CommunityHazard[]
+): HazardImpact {
+  if (!route.coordinates || route.coordinates.length < 2) {
+    return {
+      score: 50,
+      coverage: 0,
+      explanation: "Route geometry is unavailable for community-hazard analysis.",
+      nearbyCount: 0,
+      penalty: 0,
+    };
+  }
+
+  const nearbyHazards = communityHazards
+    .map((hazard) => ({
+      hazard,
+      distance: getDistanceToRouteMeters(
+        { latitude: hazard.latitude, longitude: hazard.longitude },
+        route.coordinates
+      ),
+    }))
+    .filter(({ distance }) => distance <= HAZARD_ROUTE_SEARCH_RADIUS_METERS);
+
+  if (!nearbyHazards.length) {
+    return {
+      score: 50,
+      coverage: 0,
+      explanation:
+        "No community reports were found within 300 m. This does not confirm the route is hazard-free.",
+      nearbyCount: 0,
+      penalty: 0,
+    };
+  }
+
+  let totalPenalty = 0;
+  for (const { hazard, distance } of nearbyHazards) {
+    const proximityMultiplier =
+      distance <= 40 ? 1 :
+      distance <= 100 ? 0.75 :
+      distance <= 200 ? 0.45 : 0.2;
+
+    totalPenalty +=
+      getHazardSeverity(hazard.type) *
+      proximityMultiplier *
+      getHazardRecencyMultiplier(hazard.createdAt);
+  }
+
+  // Cap the penalty so duplicate reports cannot create negative scores.
+  const penalty = Math.min(50, totalPenalty);
+  const score = Math.max(0, Math.min(100, Math.round(50 - penalty)));
+  const countLabel = nearbyHazards.length === 1 ? "report" : "reports";
+
+  return {
+    score,
+    coverage: Math.min(100, 60 + nearbyHazards.length * 10),
+    explanation:
+      `${nearbyHazards.length} community ${countLabel} found within 300 m. ` +
+      "The hazard score considers report category, distance from the route, and report age. Reports are community-submitted and unverified.",
+    nearbyCount: nearbyHazards.length,
+    penalty,
+  };
+}
+
 function getRouteSafetyScore(
-  route: RouteResult
+  route: RouteResult,
+  communityHazards: CommunityHazard[] = []
 ): SafetyScore {
   const localHour = new Date().getHours();
-  const isDaylightEstimate =
-    localHour >= 7 && localHour < 19;
+  const isDaylightEstimate = localHour >= 7 && localHour < 19;
+  const hazardImpact = getRouteHazardImpact(route, communityHazards);
 
   return calculateSafetyScore({
     distanceMeters: route.distanceMeters,
     durationSeconds: route.durationSeconds,
-    routeInfrastructure:
-      route.safetyData?.infrastructureScore,
-    routeInfrastructureCoverage:
-      route.safetyData?.infrastructureCoverage,
-    routeInfrastructureExplanation:
-      route.safetyData?.explanation,
-    pedestrianAccess:
-      route.safetyData?.pedestrianAccessScore,
-    pedestrianAccessCoverage:
-      route.safetyData?.pedestrianAccessCoverage,
+    routeInfrastructure: route.safetyData?.infrastructureScore,
+    routeInfrastructureCoverage: route.safetyData?.infrastructureCoverage,
+    routeInfrastructureExplanation: route.safetyData?.explanation,
+    pedestrianAccess: route.safetyData?.pedestrianAccessScore,
+    pedestrianAccessCoverage: route.safetyData?.pedestrianAccessCoverage,
     pedestrianAccessExplanation:
       "Estimated from ORS way types; this does not verify sidewalk condition or separation from traffic.",
-    traffic:
-      route.safetyData?.trafficScore,
-    trafficCoverage:
-      route.safetyData?.trafficCoverage,
-    trafficExplanation:
-      route.safetyData?.trafficExplanation,
+    traffic: route.safetyData?.trafficScore,
+    trafficCoverage: route.safetyData?.trafficCoverage,
+    trafficExplanation: route.safetyData?.trafficExplanation,
     lighting: isDaylightEstimate ? 70 : 35,
     lightingCoverage: 0,
     lightingExplanation: isDaylightEstimate
       ? "Daytime proxy only; mapped streetlight data is not connected."
       : "Nighttime proxy only; mapped streetlight data is not connected.",
-    hazards: 50,
-    hazardsCoverage: 0,
-    hazardsExplanation:
-      "Neutral baseline until community hazard reports are connected.",
+    hazards: hazardImpact.score,
+    hazardsCoverage: hazardImpact.coverage,
+    hazardsExplanation: hazardImpact.explanation,
   });
 }
 
@@ -397,11 +593,12 @@ function getSafetyFactorLabel(
 }
 
 function getRecommendedRouteIndexForRoutes(
-  routes: RouteResult[]
+  routes: RouteResult[],
+  communityHazards: CommunityHazard[] = []
 ): number {
   return getRecommendedRouteIndex(
     routes.map((route) => ({
-      score: getRouteSafetyScore(route).score,
+      score: getRouteSafetyScore(route, communityHazards).score,
       durationSeconds: route.durationSeconds,
     }))
   );
@@ -409,9 +606,10 @@ function getRecommendedRouteIndexForRoutes(
 
 function getRouteComparisonLabel(
   index: number,
-  routes: RouteResult[]
+  routes: RouteResult[],
+  communityHazards: CommunityHazard[] = []
 ): string {
-  if (index === getRecommendedRouteIndexForRoutes(routes)) {
+  if (index === getRecommendedRouteIndexForRoutes(routes, communityHazards)) {
     return "Recommended";
   }
 
@@ -461,6 +659,17 @@ function toMapRegion(
 }
 
 export default function MapScreen() {
+  const handledDestinationParams = useRef("");
+  const params = useLocalSearchParams<{
+    saveSlot?: string;
+    saveName?: string;
+    saveId?: string;
+    routeDestinationName?: string;
+    routeDestinationAddress?: string;
+    routeDestinationLatitude?: string;
+    routeDestinationLongitude?: string;
+  }>();
+
   const [region, setRegion] =
     useState<Region | null>(null);
 
@@ -468,6 +677,9 @@ export default function MapScreen() {
     useState<Destination | null>(
       null
     );
+
+  const [previewStepIndex, setPreviewStepIndex] =
+    useState<number | null>(null);  
 
   const [
     routeCoordinates,
@@ -503,6 +715,11 @@ export default function MapScreen() {
     locationEnabled,
     setLocationEnabled,
   ] = useState(false);
+
+  const [locationPreferenceLoaded, setLocationPreferenceLoaded] =
+    useState(false);
+  const colorScheme = useColorScheme();
+  const isDarkTheme = colorScheme === "dark";
 
   const [
     travelMode,
@@ -589,6 +806,23 @@ export default function MapScreen() {
   ] = useState<SafetyScore | null>(
     null
   );
+
+  const [communityHazards, setCommunityHazards] =
+    useState<CommunityHazard[]>([]);
+  const [communityHazardsLoaded, setCommunityHazardsLoaded] =
+    useState(false);
+  const [activeHazardAlert, setActiveHazardAlert] =
+    useState<{ hazard: CommunityHazard; distanceMeters: number } | null>(null);
+  const alertedHazardIdsRef = useRef<Set<string>>(new Set());
+  const hasManuallySelectedRouteRef = useRef(false);
+  const arrivalSavedRef = useRef(false);
+const navigationStartedAtRef = useRef<number | null>(null);
+const navigationStartedFromRef = useRef<LivePosition | null>(null);
+const safetyScoreRef = useRef<SafetyScore | null>(null);
+
+useEffect(() => {
+  safetyScoreRef.current = safetyScore;
+}, [safetyScore]);
 
   const [
     trafficSegments,
@@ -692,6 +926,8 @@ export default function MapScreen() {
       navigationStepIndex;
   }, [navigationStepIndex]);
 
+  
+
   /*
    * TomTom traffic.
    *
@@ -785,28 +1021,44 @@ export default function MapScreen() {
       try {
         setLoading(true);
 
-        const permission =
-          await Location.requestForegroundPermissionsAsync();
+        // The Profile preference is the in-app source of truth.
+        // The map never prompts for permission by itself.
+        const savedSettings = await AsyncStorage.getItem(
+          PROFILE_SETTINGS_KEY
+        );
+        const settings = savedSettings ? JSON.parse(savedSettings) : {};
 
-        if (
-          permission.status !==
-          "granted"
-        ) {
+        if (settings.locationEnabled !== true) {
           setLocationEnabled(false);
+          locationSubscription.current?.remove();
+          locationSubscription.current = null;
           setLoading(false);
           return null;
         }
 
-        setLocationEnabled(true);
-
-        const current =
-          await Location.getCurrentPositionAsync(
-            {
-              accuracy:
-                Location.Accuracy.High,
-            }
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (permission.status !== "granted") {
+          setLocationEnabled(false);
+          locationSubscription.current?.remove();
+          locationSubscription.current = null;
+          navigationActiveRef.current = false;
+          setNavigationActive(false);
+          await AsyncStorage.setItem(
+            PROFILE_SETTINGS_KEY,
+            JSON.stringify({ ...settings, locationEnabled: false })
           );
+          setRegion(null);
+          setNavigationPosition(null);
+          navigationPositionRef.current = null;
+          setLoading(false);
+          return null;
+        }
 
+        const current = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+
+        setLocationEnabled(true);
         setRegion(
           toMapRegion(
             current.coords.latitude,
@@ -814,60 +1066,81 @@ export default function MapScreen() {
           )
         );
 
-        const position: LivePosition =
-          {
-            latitude:
-              current.coords.latitude,
-            longitude:
-              current.coords.longitude,
-            heading:
-              current.coords.heading ??
-              undefined,
-            speed:
-              current.coords.speed ??
-              undefined,
-          };
+        const position: LivePosition = {
+          latitude: current.coords.latitude,
+          longitude: current.coords.longitude,
+          heading: current.coords.heading ?? undefined,
+          speed: current.coords.speed ?? undefined,
+        };
 
-        setNavigationPosition(
-          position
-        );
-
-        navigationPositionRef.current =
-          position;
-
+        setNavigationPosition(position);
+        navigationPositionRef.current = position;
         return current.coords;
       } catch (error) {
-        console.error(
-          "Unable to get current location:",
-          error
-        );
-
+        console.error("Unable to get current location:", error);
         return null;
       } finally {
         setLoading(false);
       }
     }, []);
 
+  // Only clean up on unmount. Location permission is loaded on screen focus below.
   useEffect(() => {
-    getCurrentLocation();
-
     return () => {
       locationSubscription.current?.remove();
+      locationSubscription.current = null;
       Speech.stop();
       trafficRequestIdRef.current += 1;
     };
-  }, [getCurrentLocation]);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCommunityHazards = async () => {
+      try {
+        const reports = await getRecentHazards(100);
+        if (cancelled) return;
+
+        setCommunityHazards(
+          reports.filter(
+            (hazard) =>
+              Number.isFinite(hazard.latitude) &&
+              Number.isFinite(hazard.longitude) &&
+              hazard.latitude >= -90 &&
+              hazard.latitude <= 90 &&
+              hazard.longitude >= -180 &&
+              hazard.longitude <= 180
+          )
+        );
+      } catch (error) {
+        console.warn("Unable to load community hazards for route scoring:", error);
+      } finally {
+        if (!cancelled) setCommunityHazardsLoaded(true);
+      }
+    };
+
+    void loadCommunityHazards();
+    const refreshId = setInterval(() => {
+      void loadCommunityHazards();
+    }, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(refreshId);
+    };
+  }, []);
 
   const calculateAndSetSafetyScore =
     useCallback(
       (route: RouteResult) => {
-        const score = getRouteSafetyScore(route);
+        const score = getRouteSafetyScore(route, communityHazards);
 
         setSafetyScore(score);
 
         return score;
       },
-      []
+      [communityHazards]
     );
 
   const buildRouteList =
@@ -895,9 +1168,12 @@ export default function MapScreen() {
           return;
         }
 
+        hasManuallySelectedRouteRef.current = false;
+
         const selectedIndex =
           getRecommendedRouteIndexForRoutes(
-            routes
+            routes,
+            communityHazards
           );
         const selected =
           routes[selectedIndex] ?? routes[0];
@@ -952,6 +1228,7 @@ export default function MapScreen() {
       [
         buildRouteList,
         calculateAndSetSafetyScore,
+        communityHazards,
       ]
     );
 
@@ -1183,6 +1460,8 @@ export default function MapScreen() {
           return;
         }
 
+        hasManuallySelectedRouteRef.current = true;
+
         const selected =
           availableRoutes[index];
 
@@ -1247,6 +1526,101 @@ export default function MapScreen() {
       ]
     );
 
+  useEffect(() => {
+    const selectedRoute = availableRoutes[selectedRouteIndex];
+    if (selectedRoute) {
+      setSafetyScore(getRouteSafetyScore(selectedRoute, communityHazards));
+    }
+  }, [communityHazards, availableRoutes, selectedRouteIndex]);
+
+  useEffect(() => {
+    if (
+      !communityHazardsLoaded ||
+      hasManuallySelectedRouteRef.current ||
+      availableRoutes.length === 0
+    ) {
+      return;
+    }
+
+    const recommendedIndex = getRecommendedRouteIndexForRoutes(
+      availableRoutes,
+      communityHazards
+    );
+    if (recommendedIndex === selectedRouteIndex) return;
+
+    const recommendedRoute = availableRoutes[recommendedIndex];
+    if (!recommendedRoute || recommendedRoute.coordinates.length < 2) return;
+
+    setSelectedRouteIndex(recommendedIndex);
+    setRouteInfo(recommendedRoute);
+    setRouteCoordinates(recommendedRoute.coordinates);
+    routeInfoRef.current = recommendedRoute;
+    routeCoordinatesRef.current = recommendedRoute.coordinates;
+    setRemainingDistanceMeters(recommendedRoute.distanceMeters);
+    setRemainingDurationSeconds(recommendedRoute.durationSeconds);
+    setSafetyScore(getRouteSafetyScore(recommendedRoute, communityHazards));
+    setNavigationStepIndex(0);
+    navigationStepIndexRef.current = 0;
+    announcedStepRef.current = null;
+    offRouteCountRef.current = 0;
+  }, [
+    communityHazards,
+    communityHazardsLoaded,
+    availableRoutes,
+    selectedRouteIndex,
+  ]);
+
+  // Warn once per hazard per navigation session when an upcoming report
+  // is close to the selected route and within 500 m of the user's position.
+  useEffect(() => {
+    if (!navigationActive || !navigationPosition || routeCoordinates.length < 2) {
+      if (!navigationActive) setActiveHazardAlert(null);
+      return;
+    }
+
+    const currentRouteIndex = closestRouteIndex(navigationPosition, routeCoordinates);
+    const candidates = communityHazards
+      .filter((hazard) => !alertedHazardIdsRef.current.has(hazard.id))
+      .map((hazard) => {
+        const point = { latitude: hazard.latitude, longitude: hazard.longitude };
+        const routeDistance = getDistanceToRouteMeters(point, routeCoordinates);
+        const userDistance = haversineDistance(navigationPosition, point);
+        const hazardRouteIndex = closestRouteIndex(point, routeCoordinates);
+        return { hazard, routeDistance, userDistance, hazardRouteIndex };
+      })
+      .filter(({ routeDistance, userDistance, hazardRouteIndex }) =>
+        routeDistance <= 150 &&
+        userDistance <= 500 &&
+        userDistance >= 15 &&
+        hazardRouteIndex >= Math.max(0, currentRouteIndex - 2)
+      )
+      .sort((a, b) => a.userDistance - b.userDistance);
+
+    const candidate = candidates[0];
+    if (!candidate) return;
+
+    alertedHazardIdsRef.current.add(candidate.hazard.id);
+    setActiveHazardAlert({
+      hazard: candidate.hazard,
+      distanceMeters: Math.round(candidate.userDistance),
+    });
+
+    const category = getHazardAlertLabel(candidate.hazard.type);
+    const distanceText = candidate.userDistance < 100
+      ? `about ${Math.max(10, Math.round(candidate.userDistance / 10) * 10)} meters ahead`
+      : `about ${Math.round(candidate.userDistance / 50) * 50} meters away`;
+
+    if (voiceEnabledRef.current) {
+      speak(`Caution. Community report: ${category}, ${distanceText}. Please use your judgment.`);
+    }
+  }, [
+    navigationActive,
+    navigationPosition?.latitude,
+    navigationPosition?.longitude,
+    routeCoordinates,
+    communityHazards,
+  ]);
+
   const createCoordinateDestination =
     (
       latitude: number,
@@ -1268,6 +1642,14 @@ export default function MapScreen() {
         latitude: number,
         longitude: number
       ) => {
+        if (!locationEnabled) {
+          Alert.alert(
+            "Location Access is denied",
+            "Go to the Profile tab and turn on Location Preferences to use the map."
+          );
+          return;
+        }
+
         const newDestination =
           createCoordinateDestination(
             latitude,
@@ -1322,6 +1704,7 @@ export default function MapScreen() {
       [
         calculateRoute,
         region,
+        locationEnabled,
       ]
     );
 
@@ -1330,6 +1713,86 @@ export default function MapScreen() {
       async (
         selectedDestination: Destination
       ) => {
+        if (!locationEnabled && params.saveSlot !== "home" && params.saveSlot !== "school" && params.saveSlot !== "custom") {
+          Alert.alert(
+            "Location Access is denied",
+            "Go to the Profile tab and turn on Location Preferences to use the map."
+          );
+          return;
+        }
+
+        if (
+          params.saveSlot === "home" ||
+          params.saveSlot === "school" ||
+          params.saveSlot === "custom"
+        ) {
+          try {
+            const storageKey = "@saferoute/saved_destinations";
+            const raw = await AsyncStorage.getItem(storageKey);
+
+            const existingDestinations = raw ? JSON.parse(raw) : [];
+
+            const validDestinations = Array.isArray(existingDestinations)
+              ? existingDestinations
+              : [];
+
+            const slot = params.saveSlot;
+            const saveId = params.saveId;
+            const name =
+              params.saveName?.trim() ||
+              (slot === "home" ? "Home" : slot === "school" ? "School" : "Saved place");
+
+            const savedDestination = {
+              id:
+                saveId ||
+                `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+              name,
+              address: selectedDestination.address,
+              latitude: selectedDestination.latitude,
+              longitude: selectedDestination.longitude,
+              slot,
+            };
+
+            const updatedDestinations =
+              slot === "custom" && saveId
+                ? validDestinations.map((item: { id?: string }) =>
+                    item.id === saveId ? savedDestination : item
+                  )
+                : slot === "custom"
+                  ? [...validDestinations, savedDestination]
+                  : [
+                      ...validDestinations.filter(
+                        (item: { slot?: string }) => item.slot !== slot
+                      ),
+                      savedDestination,
+                    ];
+
+            await AsyncStorage.setItem(
+              storageKey,
+              JSON.stringify(updatedDestinations)
+            );
+
+            Alert.alert(
+              "Destination saved!",
+              `${name} has been saved successfully.`,
+              [
+                {
+                  text: "OK",
+                  onPress: () => router.back(),
+                },
+              ]
+            );
+          } catch (error) {
+            console.error("Failed to save destination:", error);
+
+            Alert.alert(
+              "Couldn't save destination",
+              "Please try selecting the address again."
+            );
+          }
+
+          return;
+        }
         setDestination(
           selectedDestination
         );
@@ -1380,30 +1843,94 @@ export default function MapScreen() {
       [
         calculateRoute,
         region,
+        locationEnabled,
       ]
     );
+    useEffect(() => {
+  const name = params.routeDestinationName;
+  const address = params.routeDestinationAddress;
+  const latitude = Number(params.routeDestinationLatitude);
+  const longitude = Number(params.routeDestinationLongitude);
 
-  const handleDroppedPin =
-    useCallback(
-      async (
-        coordinate: RouteCoordinate
-      ) => {
-        if (
-          navigationActiveRef.current
-        ) {
-          return;
-        }
+  if (
+    !name ||
+    !address ||
+    !params.routeDestinationLatitude ||
+    !params.routeDestinationLongitude ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return;
+  }
 
-        setRoutePanelExpanded(true);
+  const requestKey = `${name}|${address}|${latitude}|${longitude}`;
 
-        await routeToCoordinate(
+  if (handledDestinationParams.current === requestKey) {
+    return;
+  }
+
+  // Wait for the user's current location before routing.
+  if (!navigationPosition && !region) {
+    return;
+  }
+
+  handledDestinationParams.current = requestKey;
+
+  void handleSelectDestination({
+    name,
+    address,
+    latitude,
+    longitude,
+  });
+}, [
+  params.routeDestinationName,
+  params.routeDestinationAddress,
+  params.routeDestinationLatitude,
+  params.routeDestinationLongitude,
+  navigationPosition,
+  region,
+  handleSelectDestination,
+]);
+const isSavingDestination =
+  params.saveSlot === "home" ||
+  params.saveSlot === "school" ||
+  params.saveSlot === "custom";
+  const handleDroppedPin = useCallback(
+  async (coordinate: RouteCoordinate) => {
+    if (navigationActiveRef.current) {
+      return;
+    }
+
+    setRoutePanelExpanded(true);
+
+    // When adding or editing a Quick Destination,
+    // save the dropped pin instead of calculating a route.
+    if (isSavingDestination) {
+      await handleSelectDestination(
+        createCoordinateDestination(
           coordinate.latitude,
           coordinate.longitude
-        );
-      },
-      [routeToCoordinate]
-    );
+        )
+      );
+      return;
+    }
 
+    // Normal map behavior: calculate a route to the pin.
+    await routeToCoordinate(
+      coordinate.latitude,
+      coordinate.longitude
+    );
+  },
+  [
+    isSavingDestination,
+    handleSelectDestination,
+    routeToCoordinate,
+  ]
+);
   const stopNavigation =
     useCallback(() => {
       locationSubscription.current?.remove();
@@ -1424,6 +1951,7 @@ export default function MapScreen() {
         1;
 
       setArrived(false);
+      setActiveHazardAlert(null);
 
       setRecalculating(
         false
@@ -1536,9 +2064,12 @@ export default function MapScreen() {
               result
             );
 
+          hasManuallySelectedRouteRef.current = false;
+
           const selectedIndex =
             getRecommendedRouteIndexForRoutes(
-              routes
+              routes,
+              communityHazards
             );
           const selected =
             routes[selectedIndex] ?? routes[0];
@@ -1604,42 +2135,64 @@ export default function MapScreen() {
       [
         buildRouteList,
         calculateAndSetSafetyScore,
+        communityHazards,
       ]
     );
 
-  const handleArrival =
-    useCallback(() => {
-      if (arrived) {
-        return;
-      }
+const handleArrival = useCallback(() => {
+  if (arrivalSavedRef.current) {
+    return;
+  }
 
-      setArrived(true);
+  // Prevent duplicate saves if GPS reports arrival more than once.
+  arrivalSavedRef.current = true;
 
-      if (
-        voiceEnabledRef.current
-      ) {
-        speak(
-          "You have arrived at your destination."
-        );
-      }
+  const completedDestination = destinationRef.current;
+  const completedRoute = routeInfoRef.current;
+  const startingPosition = navigationStartedFromRef.current;
+  const startedAt = navigationStartedAtRef.current;
 
-      locationSubscription.current?.remove();
+  if (completedDestination && completedRoute) {
+    const elapsedSeconds =
+      startedAt !== null
+        ? Math.max(0, Math.round((Date.now() - startedAt) / 1000))
+        : Math.round(completedRoute.durationSeconds);
 
-      locationSubscription.current =
-        null;
+    const routeStart = completedRoute.coordinates[0];
 
-      navigationActiveRef.current =
-        false;
+    void saveCompletedTrip({
+      originName: "Starting location",
+      destinationName: completedDestination.name,
+      distanceMeters: completedRoute.distanceMeters,
+      durationSeconds: elapsedSeconds,
+      safetyScore: safetyScoreRef.current?.score ?? null,
+      travelMode: travelModeRef.current,
+      originLatitude:
+        routeStart?.latitude ?? startingPosition?.latitude,
+      originLongitude:
+        routeStart?.longitude ?? startingPosition?.longitude,
+      destinationLatitude: completedDestination.latitude,
+      destinationLongitude: completedDestination.longitude,
+    }).catch((error) => {
+      console.error("Unable to save completed trip:", error);
+    });
+  }
 
-      setNavigationActive(
-        false
-      );
+  setArrived(true);
 
-      setTrafficSegments([]);
+  if (voiceEnabledRef.current) {
+    speak("You have arrived at your destination.");
+  }
 
-      trafficRequestIdRef.current +=
-        1;
-    }, [arrived]);
+  locationSubscription.current?.remove();
+  locationSubscription.current = null;
+
+  navigationActiveRef.current = false;
+  setNavigationActive(false);
+  setTrafficSegments([]);
+
+  trafficRequestIdRef.current += 1;
+}, []);
 
   const speakUpcomingTurn =
     useCallback(
@@ -1929,6 +2482,14 @@ export default function MapScreen() {
   const startNavigation =
     useCallback(
       async () => {
+        if (!locationEnabled) {
+          Alert.alert(
+            "Location Access is denied",
+            "Go to the Profile tab and turn on Location Preferences before starting navigation."
+          );
+          return;
+        }
+
         if (
           !destinationRef.current
         ) {
@@ -1984,7 +2545,15 @@ export default function MapScreen() {
           }
         }
 
-        setArrived(false);
+setArrived(false);
+arrivalSavedRef.current = false;
+navigationStartedAtRef.current = Date.now();
+navigationStartedFromRef.current = {
+  latitude: start.latitude,
+  longitude: start.longitude,
+};
+setActiveHazardAlert(null);
+alertedHazardIdsRef.current.clear();
 
         setTrafficSegments([]);
 
@@ -2050,6 +2619,7 @@ export default function MapScreen() {
         calculateRoute,
         handleNavigationLocation,
         region,
+        locationEnabled,
       ]
     );
 
@@ -2085,12 +2655,93 @@ export default function MapScreen() {
       );
     }, []);
 
-  const toggleNightMode =
-    useCallback(() => {
-      setNavigationNightMode(
-        (current) => !current
+
+const toggleNightMode = useCallback(() => {
+  setNavigationNightMode((current) => {
+    const next = !current;
+
+    void (async () => {
+      try {
+        const savedSettings = await AsyncStorage.getItem(
+          PROFILE_SETTINGS_KEY
+        );
+
+        const settings = savedSettings
+          ? JSON.parse(savedSettings)
+          : {};
+
+        await AsyncStorage.setItem(
+          PROFILE_SETTINGS_KEY,
+          JSON.stringify({
+            ...settings,
+            nightSafetyEnabled: next,
+          })
+        );
+      } catch (error) {
+        console.warn("Could not save Night Safety Mode:", error);
+      }
+    })();
+
+    return next;
+  });
+}, []);
+
+    useEffect(() => {
+  let isMounted = true;
+
+  const loadNightSafetyMode = async () => {
+    try {
+      const savedSettings = await AsyncStorage.getItem(
+        PROFILE_SETTINGS_KEY
       );
+
+      if (!savedSettings || !isMounted) return;
+
+      const settings = JSON.parse(savedSettings);
+
+      if (typeof settings.nightSafetyEnabled === "boolean") {
+        setNavigationNightMode(settings.nightSafetyEnabled);
+      }
+    } catch (error) {
+      console.warn("Could not load Night Safety Mode:", error);
+    }
+  };
+
+  void loadNightSafetyMode();
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
+  
+    useEffect(() => {
+      let active = true;
+
+      const loadNightSafetyPreference = async () => {
+        try {
+          const saved = await AsyncStorage.getItem(
+            "@saferoute_profile_settings"
+          );
+
+          if (!active || !saved) return;
+
+          const settings = JSON.parse(saved);
+
+          if (typeof settings.nightSafetyEnabled === "boolean") {
+            setNavigationNightMode(settings.nightSafetyEnabled);
+          }
+        } catch (error) {
+          console.warn("Could not load night safety preference:", error);
+        }
+      };
+
+      void loadNightSafetyPreference();
+
+      return () => {
+        active = false;
+      };
     }, []);
+      
 
   const toggleCompactScreen =
     useCallback(() => {
@@ -2136,7 +2787,42 @@ export default function MapScreen() {
       routeInfo,
       navigationStepIndex,
     ]);
+  const navigationPreviewSteps: NavigationPreviewStep[] = (
+  routeInfo?.steps ?? []
+).map((step) => {
+  const route = routeCoordinates;
 
+  const requestedIndex =
+    step.wayPoints?.[1] ??
+    step.wayPoints?.[0] ??
+    0;
+
+  const boundedIndex = Math.max(
+    0,
+    Math.min(requestedIndex, route.length - 1)
+  );
+
+  return {
+    instruction: step.instruction,
+    distanceMeters: step.distanceMeters,
+    coordinate: route[boundedIndex] ?? null,
+  };
+});
+
+const handlePreviewStepChange = useCallback(
+  (index: number | null) => {
+    setPreviewStepIndex(index);
+
+    if (index === null) {
+      // Returning to live navigation restores GPS following.
+      setMapFollowingUser(true);
+    } else {
+      // Previewing a turn should not fight the map camera.
+      setMapFollowingUser(false);
+    }
+  },
+  []
+);
   const screen =
     Dimensions.get("window");
 
@@ -2158,8 +2844,8 @@ export default function MapScreen() {
   ]);
 
   const routeSafetyScores =
-    availableRoutes.map(
-      getRouteSafetyScore
+    availableRoutes.map((route) =>
+      getRouteSafetyScore(route, communityHazards)
     );
   const routeComparison =
     getRouteComparison(
@@ -2170,6 +2856,68 @@ export default function MapScreen() {
           route.durationSeconds,
       }))
     );
+
+  // Re-read Profile settings whenever the map screen becomes active.
+  // This makes turning Location Preferences off/on in Profile take effect
+  // without requiring the user to open Android Settings.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      const applyLocationPreference = async () => {
+        try {
+          const savedSettings = await AsyncStorage.getItem(PROFILE_SETTINGS_KEY);
+          const settings = savedSettings ? JSON.parse(savedSettings) : {};
+          const preferenceEnabled = settings.locationEnabled === true;
+
+          if (cancelled) return;
+          setLocationPreferenceLoaded(true);
+
+          const permission = await Location.getForegroundPermissionsAsync();
+          if (cancelled) return;
+
+          if (!preferenceEnabled || permission.status !== "granted") {
+            locationSubscription.current?.remove();
+            locationSubscription.current = null;
+            navigationActiveRef.current = false;
+            setNavigationActive(false);
+            setTrafficSegments([]);
+            trafficRequestIdRef.current += 1;
+            setActiveHazardAlert(null);
+            setLocationEnabled(false);
+            setRegion(null);
+            setNavigationPosition(null);
+            navigationPositionRef.current = null;
+            setLoading(false);
+
+            if (preferenceEnabled && permission.status !== "granted") {
+              await AsyncStorage.setItem(
+                PROFILE_SETTINGS_KEY,
+                JSON.stringify({ ...settings, locationEnabled: false })
+              );
+            }
+            return;
+          }
+
+          setLocationEnabled(true);
+          await getCurrentLocation();
+        } catch (error) {
+          console.warn("Could not load Location Preferences:", error);
+          if (!cancelled) {
+            setLocationPreferenceLoaded(true);
+            setLocationEnabled(false);
+            setLoading(false);
+          }
+        }
+      };
+
+      void applyLocationPreference();
+      return () => {
+        cancelled = true;
+      };
+    }, [getCurrentLocation])
+  );
+
   return (
     <SafeAreaView
       style={styles.safeArea}
@@ -2227,10 +2975,15 @@ export default function MapScreen() {
                 styles.headerButton
               }
               onPress={async () => {
-                setMapFollowingUser(
-                  true
-                );
+                if (!locationEnabled) {
+                  Alert.alert(
+                    "Location Access is denied",
+                    "Go to the Profile tab and turn on Location Preferences to use your current location."
+                  );
+                  return;
+                }
 
+                setMapFollowingUser(true);
                 await getCurrentLocation();
               }}
             >
@@ -2327,7 +3080,36 @@ export default function MapScreen() {
             trafficSegments={
               trafficSegments
             }
+            previewSteps={navigationPreviewSteps}
+            activeStepIndex={navigationStepIndex}
+            previewStepIndex={previewStepIndex}
+            onPreviewStepChange={handlePreviewStepChange}
           />
+
+          {isSavingDestination && (
+  <View style={styles.saveDestinationBanner}>
+    <Ionicons
+      name="location"
+      size={22}
+      color="#2563eb"
+    />
+    <View style={{ flex: 1 }}>
+      <Text style={styles.saveDestinationTitle}>
+        Choose a location
+      </Text>
+      <Text style={styles.saveDestinationSubtitle}>
+        Search for an address or drop a pin on the map to save{" "}
+        {params.saveName?.trim() ||
+          (params.saveSlot === "home"
+            ? "Home"
+            : params.saveSlot === "school"
+              ? "School"
+              : "your destination")}
+        .
+      </Text>
+    </View>
+  </View>
+)}
 
           {!navigationActive && (
             <View
@@ -2621,7 +3403,8 @@ export default function MapScreen() {
                         >
                           {getRouteComparisonLabel(
                             selectedRouteIndex,
-                            availableRoutes
+                            availableRoutes,
+                            communityHazards
                           )}
                         </Text>
 
@@ -2733,7 +3516,7 @@ export default function MapScreen() {
                           </View>
                         ))}
                         <Text style={styles.safetyEstimateNote}>
-                          ORS and TomTom data where available; lighting is a time proxy and hazards use a neutral baseline until reports are connected.
+                          Scores combine available ORS route data, TomTom traffic data where supplied, and nearby community reports. Hazard reports are unverified and may be outdated; no reports does not mean a route is hazard-free.
                         </Text>
                       </View>
                     )}
@@ -2912,6 +3695,35 @@ export default function MapScreen() {
               </View>
             )}
 
+          {navigationActive && activeHazardAlert && (
+            <View style={styles.liveHazardAlert} accessibilityLiveRegion="assertive">
+              <View style={styles.liveHazardAlertIcon}>
+                <Ionicons name="warning" size={22} color="#FFFFFF" />
+              </View>
+              <View style={styles.liveHazardAlertContent}>
+                <Text style={styles.liveHazardAlertEyebrow}>HAZARD AHEAD</Text>
+                <Text style={styles.liveHazardAlertTitle} numberOfLines={1}>
+                  {getHazardAlertLabel(activeHazardAlert.hazard.type)}
+                </Text>
+                <Text style={styles.liveHazardAlertDescription} numberOfLines={2}>
+                  {activeHazardAlert.hazard.title || activeHazardAlert.hazard.description || "Community-reported hazard"}
+                  {` · ${activeHazardAlert.distanceMeters} m away`}
+                </Text>
+                <Text style={styles.liveHazardAlertDisclaimer}>
+                  Community report; not independently verified.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss hazard warning"
+                onPress={() => setActiveHazardAlert(null)}
+                style={styles.liveHazardAlertClose}
+              >
+                <Ionicons name="close" size={20} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          )}
+
           {navigationActive && (
             <View
               style={
@@ -3009,10 +3821,45 @@ export default function MapScreen() {
                     !current
                 )
               }
+              previewSteps={navigationPreviewSteps}
+              activeStepIndex={navigationStepIndex}
+              previewStepIndex={previewStepIndex}
+              onPreviewStepChange={handlePreviewStepChange}
             />
           </View>
         )}
 
+        {locationPreferenceLoaded && !locationEnabled && (
+          <View
+            accessibilityRole="summary"
+            style={[
+              styles.locationAccessDeniedOverlay,
+              { backgroundColor: isDarkTheme ? "#07111F" : "#F8FAFC" },
+            ]}
+          >
+            <Ionicons
+              name="location-outline"
+              size={42}
+              color={isDarkTheme ? "#FFFFFF" : "#111827"}
+            />
+            <Text
+              style={[
+                styles.locationAccessDeniedTitle,
+                { color: isDarkTheme ? "#FFFFFF" : "#111827" },
+              ]}
+            >
+              Location Access is denied
+            </Text>
+            <Text
+              style={[
+                styles.locationAccessDeniedMessage,
+                { color: isDarkTheme ? "#D1D5DB" : "#4B5563" },
+              ]}
+            >
+              To use the map, go to the Profile tab and turn on Location Preferences.
+            </Text>
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -3074,6 +3921,34 @@ const styles = StyleSheet.create({
   mapContainer: {
     flex: 1,
     position: "relative",
+  },
+
+  locationAccessDeniedOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 100,
+    elevation: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+
+  locationAccessDeniedTitle: {
+    marginTop: 16,
+    fontSize: 19,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+
+  locationAccessDeniedMessage: {
+    marginTop: 9,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: "center",
+    maxWidth: 320,
   },
 
   searchContainer: {
@@ -3581,9 +4456,81 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
 
+  liveHazardAlert: {
+    position: "absolute",
+    top: 58,
+    left: 12,
+    right: 12,
+    zIndex: 35,
+    elevation: 18,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#7F1D1D",
+    borderWidth: 1,
+    borderColor: "#F87171",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+  },
+
+  liveHazardAlertIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#B91C1C",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  liveHazardAlertContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  liveHazardAlertEyebrow: {
+    color: "#FECACA",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+
+  liveHazardAlertTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+
+  liveHazardAlertDescription: {
+    color: "#FEE2E2",
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+
+  liveHazardAlertDisclaimer: {
+    color: "#FCA5A5",
+    fontSize: 9,
+    marginTop: 4,
+  },
+
+  liveHazardAlertClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   navigationPill: {
     position: "absolute",
     top: 14,
+    right: 130,
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
@@ -3698,4 +4645,40 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#ffffff",
   },
+  saveDestinationBanner: {
+  position: "absolute",
+  bottom: 56,
+  left: 12,
+  right: 12,
+  zIndex: 15,
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 10,
+  padding: 14,
+  borderRadius: 14,
+  backgroundColor: "#ffffff",
+  borderWidth: 1,
+  borderColor: "#dbeafe",
+  shadowColor: "#000000",
+  shadowOpacity: 0.12,
+  shadowRadius: 8,
+  shadowOffset: {
+    width: 0,
+    height: 3,
+  },
+  elevation: 5,
+},
+
+saveDestinationTitle: {
+  fontSize: 14,
+  fontWeight: "800",
+  color: "#111827",
+},
+
+saveDestinationSubtitle: {
+  marginTop: 3,
+  fontSize: 12,
+  lineHeight: 17,
+  color: "#64748b",
+},
 })

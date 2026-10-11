@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import {
   logIn,
@@ -106,6 +107,13 @@ export default function AuthScreen() {
     setIsLogin((current) => !current);
   }
 
+  function handleBack() {
+    if (loading) return;
+
+    setError("");
+    router.replace("/");
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -113,8 +121,32 @@ export default function AuthScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.content}>
+          {/* Back to Welcome */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={handleBack}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel="Back to Welcome"
+          >
+            <Ionicons
+              name="arrow-back"
+              size={23}
+              color="#FFFFFF"
+            />
+            <Text style={styles.backButtonText}>Back</Text>
+          </Pressable>
+
+          {/* SafeRoute shield icon */}
           <View style={styles.logoCircle}>
-            <Text style={styles.logo}>🛡️</Text>
+            <Ionicons
+              name="navigate-circle"
+              size={39}
+              color="#20C997"
+            />
           </View>
 
           <Text style={styles.title}>SafeRoute</Text>
@@ -137,7 +169,10 @@ export default function AuthScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
+              textContentType="emailAddress"
+              autoComplete="email"
               editable={!loading}
+              returnKeyType="next"
             />
 
             <Text style={styles.label}>Password</Text>
@@ -150,11 +185,21 @@ export default function AuthScreen() {
               onChangeText={setPassword}
               secureTextEntry
               autoCapitalize="none"
+              autoCorrect={false}
+              textContentType={isLogin ? "password" : "newPassword"}
+              autoComplete={isLogin ? "current-password" : "new-password"}
               editable={!loading}
+              returnKeyType="done"
+              onSubmitEditing={handleAuth}
             />
 
             {error ? (
               <View style={styles.errorBox}>
+                <Ionicons
+                  name="alert-circle"
+                  size={20}
+                  color="#FFB4BE"
+                />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
@@ -167,6 +212,7 @@ export default function AuthScreen() {
               ]}
               onPress={handleAuth}
               disabled={loading}
+              accessibilityRole="button"
             >
               {loading ? (
                 <ActivityIndicator color="#04110D" />
@@ -181,6 +227,7 @@ export default function AuthScreen() {
               style={styles.switchButton}
               onPress={switchMode}
               disabled={loading}
+              accessibilityRole="button"
             >
               <Text style={styles.switchText}>
                 {isLogin
@@ -207,7 +254,14 @@ export default function AuthScreen() {
               ]}
               onPress={handleGuest}
               disabled={loading}
+              accessibilityRole="button"
             >
+              <Ionicons
+                name="person-outline"
+                size={19}
+                color="#DCE8F2"
+                style={styles.guestIcon}
+              />
               <Text style={styles.guestButtonText}>
                 Continue as Guest
               </Text>
@@ -239,10 +293,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 14,
+    backgroundColor: "#172337",
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    marginBottom: 18,
+    gap: 8,
+  },
+
+  backButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
   logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: "#102A43",
     borderWidth: 1,
     borderColor: "#1E496D",
@@ -250,10 +325,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignSelf: "center",
     marginBottom: 16,
-  },
-
-  logo: {
-    fontSize: 34,
   },
 
   title: {
@@ -297,6 +368,9 @@ const styles = StyleSheet.create({
   },
 
   errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
     backgroundColor: "#351A20",
     borderWidth: 1,
     borderColor: "#71313B",
@@ -306,6 +380,7 @@ const styles = StyleSheet.create({
   },
 
   errorText: {
+    flex: 1,
     color: "#FFB4BE",
     fontSize: 14,
     lineHeight: 20,
@@ -343,6 +418,7 @@ const styles = StyleSheet.create({
   switchText: {
     color: "#8FA8BD",
     fontSize: 14,
+    textAlign: "center",
   },
 
   switchTextBold: {
@@ -370,6 +446,7 @@ const styles = StyleSheet.create({
   },
 
   guestButton: {
+    flexDirection: "row",
     height: 54,
     borderRadius: 17,
     backgroundColor: "#102A43",
@@ -378,6 +455,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 12,
+  },
+
+  guestIcon: {
+    marginRight: 9,
   },
 
   guestPressed: {

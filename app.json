@@ -1,11 +1,13 @@
+
 {
   "expo": {
     "name": "SafeRoute",
     "slug": "SafeRoute",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/images/saferoute-icon.png",
+    "scheme": "saferoute",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.saidanielk.SafeRoute",
@@ -15,8 +17,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#07111F",
+        "foregroundImage": "./assets/images/saferoute-icon.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
@@ -33,7 +35,42 @@
     "plugins": [
       "expo-router",
       "expo-location",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-widgets",
+        {
+          "widgets": [
+            {
+              "name": "SafeRouteQuickStart",
+              "displayName": "SafeRoute Quick Start",
+              "description": "Quickly open SafeRoute route planning.",
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "SafeRouteQuickStart",
+              "label": "SafeRoute Quick Start",
+              "description": "Quickly open SafeRoute route planning.",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 2,
+              "updatePeriodMillis": 0
+            }
+          ]
+        }
+      ]
     ],
     "extra": {
       "router": {},

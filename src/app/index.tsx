@@ -1,5 +1,5 @@
-
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import {
   Pressable,
   SafeAreaView,
@@ -12,8 +12,13 @@ export default function WelcomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
+        {/* SafeRoute navigation icon */}
         <View style={styles.logoCircle}>
-          <Text style={styles.logo}>🛡️</Text>
+          <Ionicons
+            name="navigate-circle"
+            size={62}
+            color="#20C997"
+          />
         </View>
 
         <Text style={styles.title}>Welcome to SafeRoute!</Text>
@@ -28,9 +33,15 @@ export default function WelcomeScreen() {
             pressed && styles.buttonPressed,
           ]}
           onPress={() => router.push("/auth")}
+          accessibilityRole="button"
         >
           <Text style={styles.buttonText}>Get Started</Text>
-          <Text style={styles.arrow}>→</Text>
+          <Ionicons
+            name="arrow-forward"
+            size={23}
+            color="#04110D"
+            style={styles.buttonIcon}
+          />
         </Pressable>
 
         <Text style={styles.footer}>
@@ -64,10 +75,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 28,
-  },
-
-  logo: {
-    fontSize: 45,
   },
 
   title: {
@@ -108,10 +115,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  arrow: {
-    color: "#04110D",
-    fontSize: 25,
-    fontWeight: "700",
+  buttonIcon: {
     marginLeft: 10,
   },
 

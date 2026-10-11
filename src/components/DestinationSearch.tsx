@@ -389,7 +389,7 @@ export default function DestinationSearch({
             handleChangeText
           }
           placeholder="Where are you going?"
-          placeholderTextColor="#64748b"
+          placeholderTextColor="#5c6b7f"
           returnKeyType="search"
           onSubmitEditing={
             handleSubmit

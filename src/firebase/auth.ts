@@ -5,14 +5,57 @@ import {
   signInAnonymously,
   signOut,
   onAuthStateChanged,
+  initializeAuth,
+  getAuth,
   type User,
 } from "firebase/auth";
 
+import type { Persistence } from "firebase/auth";
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { firebaseApp } from "./firebaseConfig";
 
-import { getAuth } from "firebase/auth";
+// React Native Firebase Auth persistence compatibility.
+// The React Native persistence function may be missing from
+// Firebase's TypeScript exports in some SDK versions.
+type ReactNativePersistenceFactory = (
+  storage: typeof AsyncStorage
+) => Persistence;
 
-export const firebaseAuth = getAuth(firebaseApp);
+function getNativePersistence(): Persistence | null {
+  try {
+    const authModule = require("firebase/auth") as {
+      getReactNativePersistence?: ReactNativePersistenceFactory;
+    };
+
+    if (typeof authModule.getReactNativePersistence !== "function") {
+      return null;
+    }
+
+    return authModule.getReactNativePersistence(AsyncStorage);
+  } catch {
+    return null;
+  }
+}
+
+// Initialize Firebase Auth with persistent storage when available.
+// If Auth has already been initialized, reuse the existing instance.
+function createFirebaseAuth() {
+  try {
+    const persistence = getNativePersistence();
+
+    if (persistence) {
+      return initializeAuth(firebaseApp, { persistence });
+    }
+
+    return getAuth(firebaseApp);
+  } catch {
+    return getAuth(firebaseApp);
+  }
+}
+
+export const firebaseAuth = createFirebaseAuth();
 
 // SIGN UP
 export async function signUp(
