@@ -1,131 +1,269 @@
-﻿# SafeRoute 🛡️
+# SafeRoute 🛡️
 
-**AI-powered safety navigation for safer everyday journeys.**
+### AI-Powered Safety Navigation for Safer Journeys
 
-SafeRoute is a student-built mobile app designed to help pedestrians and cyclists make more informed travel decisions. It prioritizes route safety information alongside travel time and distance.
+**SafeRoute** is a student-built mobile application designed to help people make safer travel decisions. Instead of focusing only on the fastest route, SafeRoute aims to prioritize personal safety by considering potential hazards, route conditions, community reports, and other available safety information.
 
-## Features
+Built as a Congressional App Challenge project, SafeRoute combines navigation, safety awareness, AI-assisted explanations, and emergency tools in one mobile experience.
 
-- Walking, cycling, and driving route options
-- Route safety scores and safety-focused route comparisons
-- Current-location safety information
-- Community hazard reports
-- Weather alerts and AMBER Alert information
-- AI-powered safety explanations
-- Emergency tools and trusted contacts
-- Trip history and saved destinations
-- Voice-guided navigation features
+> **Project goal:** Help people make more informed decisions about the routes they take when walking, biking, or driving.
 
-Feature availability depends on device permissions, network connectivity, API configuration, and platform compatibility.
+---
 
-## Download SafeRoute
+## 📱 About the Project
 
-Open the **Releases** section of this GitHub repository and download the latest available Android APK.
+Traditional navigation applications primarily emphasize travel time, distance, and traffic. SafeRoute explores a different approach: making safety a central part of the navigation experience.
 
-### Install on Android
+The application is designed to help students, pedestrians, cyclists, and other travelers understand potential risks along their routes and access useful safety tools during a journey.
 
-1. Download the SafeRoute `.apk` file from Releases.
-2. Open the downloaded file on your Android device.
-3. If Android asks, allow installation from that source in your device settings.
-4. Return to the installer and tap Install.
-5. Open SafeRoute and grant the permissions you want to use, such as location.
-6. Test navigation and other features before relying on them.
+## ✨ Features
 
-Only install APKs from a source you trust. Android may display a security warning because the app was installed outside Google Play.
+### 🗺️ Safety-Focused Navigation
+- Walking, cycling, and driving route modes.
+- Multiple route options when supported by the routing service.
+- Route safety scores to help compare available routes.
+- Route distance and estimated travel time.
+- Current-location support and map-based navigation.
+- Voice-guided directions and off-route detection.
+- Rerouting support where available.
 
-An APK is for compatible Android devices. It is not an iOS installer.
+### 🚦 Route Safety Analysis
+- Safety scores and explanations for route comparisons.
+- Community-reported hazards and dangerous areas.
+- Hazard severity and recency considerations.
+- Route scoring that considers nearby reported hazards.
+- Information to help users compare safety and convenience.
 
-## Important compatibility disclaimer
+### 🌦️ Safety Alerts
+- Severe weather information through the National Weather Service.
+- Community hazard information.
+- AMBER Alert information where available.
+- Safety-related notification features.
 
-SafeRoute currently uses Expo SDK 58.
+### 🤖 AI-Powered Assistance
+- AI-assisted explanations and safety-related questions.
+- Context-aware responses using available weather and alert information.
+- Gemini-powered AI integration.
 
-Expo SDK 58 was officially announced on October 15, 2026. At the time of this project's release, the SDK 58 versions of Expo Go for the Google Play Store and Apple App Store were expected to become available in the following weeks. Availability may change; consult the official Expo documentation for the latest status.
+### 🚨 Emergency and Personal Safety Tools
+- Emergency-related tools and safety information.
+- Trusted contacts.
+- Trip-sharing functionality.
+- Saved destinations.
+- Completed-trip history.
 
-Official references:
-- https://expo.dev/changelog/sdk-58
-- https://docs.expo.dev/versions/v58.0.0/
+### 👤 User Accounts and Data
+- Guest authentication.
+- Email-based authentication.
+- Firebase-backed trip history and community reports.
+- Profile settings and safety preferences.
 
-### Android maps and notifications
+**Note:** Feature availability depends on device permissions, connectivity, service availability, and the build being used. Some features may behave differently across Android and iOS.
 
-SafeRoute has known compatibility limitations with Android maps and notifications in certain Expo Go and older SDK 52–53 development environments.
+---
 
-- Android map rendering may not work correctly in some development environments.
-- Remote push notifications are not supported in Expo Go on Android from SDK 53 onward; a compatible development build or standalone app is required for push notification functionality.
-- A standalone APK does not guarantee that every feature will work. Device permissions, native dependencies, API credentials, and service availability also matter.
-- Some notifications may require valid credentials and additional configuration.
-- Maps and safety information depend on network connectivity and their respective data providers.
+## 🛠️ Technology Stack
 
-These limitations do not mean that all Android devices or all builds using those SDK versions will fail. Compatibility depends on the exact configuration and build.
+SafeRoute uses a combination of mobile development frameworks, mapping services, cloud services, and external data sources.
 
-## Can I downgrade Expo SDK?
+| Technology | Purpose |
+|---|---|
+| React Native | Cross-platform mobile application |
+| Expo | Development and application builds |
+| Expo Router | File-based navigation |
+| TypeScript | Application logic and type safety |
+| OpenRouteService | Route directions |
+| TomTom | Traffic information |
+| Firebase Authentication | User authentication |
+| Cloud Firestore | Trip history, community reports, and trusted-contact data |
+| Google Gemini API | AI-assisted explanations |
+| National Weather Service | Severe weather information |
+| AMBER Alert information sources | Alert awareness |
 
-Developers may experiment with an older SDK, but downgrading is not a guaranteed fix for maps or notifications.
+The project is designed to use these services without requiring a paid Google Maps API integration. Individual services may have their own quotas, terms, or usage limits.
 
-**Important:** Users cannot downgrade the Expo SDK simply by changing a setting inside an installed APK. SDK downgrades require a developer to modify the source project's dependencies and generate a new compatible build.
+---
 
-If you are a developer who wants to experiment with SDK 53:
+## 📂 Project Structure
 
-1. Clone or download the source code.
-2. Create a separate Git branch for compatibility experiments.
-3. Review the Expo SDK 53 migration guide and supported package versions.
-4. Change the Expo dependency and align compatible Expo packages.
-5. Review native modules and configuration plugins.
-6. Build and test the application on a physical Android device.
-7. Verify maps, location permissions, notifications, and navigation independently.
+The application uses Expo Router and a TypeScript-based source structure.
 
-Do not assume the existing SDK 58 project can be downgraded without code or dependency changes. SDK 52 and SDK 53 also have different compatibility requirements.
+```text
+SafeRoute/
+├── src/
+│   ├── app/
+│   │   ├── (tabs)/
+│   │   │   ├── index.tsx
+│   │   │   ├── safety.tsx
+│   │   │   ├── trips.tsx
+│   │   │   ├── emergency.tsx
+│   │   │   └── profile.tsx
+│   │   ├── ai.tsx
+│   │   ├── auth.tsx
+│   │   ├── map.tsx
+│   │   └── report.tsx
+│   └── firebase/
+│       ├── firebaseConfig.ts
+│       └── auth.ts
+├── assets/
+├── .env.example
+├── .gitignore
+├── app.json
+├── eas.json
+├── package.json
+└── README.md
+```
 
-Official upgrade guidance:
-https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/
+*The exact files and directories may vary between development versions.*
 
-## Run from source
+---
 
-### Requirements
+## 🚀 Getting Started
 
-- Node.js compatible with the selected Expo SDK
-- npm
-- Git
-- Expo Go compatible with the project SDK, or an appropriate development build
-- API credentials for features that require them
+### Prerequisites
 
-### Installation
+Before running the source code, install:
 
-Clone this repository and open its directory:
+- [Node.js](https://nodejs.org/)
+- [Git](https://git-scm.com/)
+- [Expo Go](https://expo.dev/go) or a compatible development build
+- A code editor, such as [Visual Studio Code](https://code.visualstudio.com/)
+
+### 1. Clone the repository
 
 ```bash
-git clone YOUR_REPOSITORY_URL
+git clone https://github.com/SaiDanielK/SafeRoute.git
 cd SafeRoute
+```
+
+### 2. Install dependencies
+
+```bash
 npm install
 ```
 
-Configure the environment variables required by the project. Use `.env.example` as a template if provided. Never publish private credentials or service-account keys.
+### 3. Configure environment variables
 
-Start the Expo development server:
+Create a `.env` file in the project root using `.env.example` as a template.
+
+Add the API keys and configuration values required by the services you want to use:
+
+```dotenv
+EXPO_PUBLIC_ORS_API_KEY=
+EXPO_PUBLIC_TOMTOM_API_KEY=
+EXPO_PUBLIC_GEMINI_API_KEY=
+```
+
+Configure Firebase using the project's Firebase configuration files and the appropriate Firebase project settings.
+
+**Important:** Never commit your real `.env` file, private credentials, service-account keys, or other secrets to GitHub. Review `.gitignore` before committing.
+
+Variables prefixed with `EXPO_PUBLIC_` are included in client-side application code and should not be considered secret. Restrict API keys where supported, monitor usage, and never put privileged server credentials in the mobile app.
+
+### 4. Start the development server
 
 ```bash
 npx expo start
 ```
 
-Follow the terminal instructions to open the project on a supported device or development build.
+Follow the Expo CLI instructions to open the application on a compatible device or development environment.
 
-Expo Go support depends on the SDK version and the native modules used by the project. Use a compatible build if Expo Go cannot run the project.
+**Compatibility note:** The primary source project uses Expo SDK 58. The Android APK distributed with the initial test release was built from a separate SDK 51 backup. Expo Go must support the SDK used by the project; an APK installed directly on Android does not require Expo Go.
 
-## Safety disclaimer
+---
 
-SafeRoute is an informational navigation aid and is not a guarantee of personal safety.
+## 📦 Android APK
 
-Safety scores, community reports, weather information, route suggestions, and AI-generated explanations may be incomplete, delayed, inaccurate, or unavailable. A route marked safer is not necessarily safe.
+An Android test build has been produced using Expo Application Services (EAS Build).
 
-Always remain aware of your surroundings, obey local laws, and use your judgment. In an emergency, contact local emergency services. Do not rely solely on SafeRoute for emergency response or life-critical decisions.
+- **Platform:** Android
+- **Application version:** 1.0.0
+- **Build profile:** `saferoute-apk`
+- **Expo SDK:** 51.0.0
+- **Distribution:** Internal testing
 
-Location-based features require appropriate permissions. Review the app's behavior and privacy implications before sharing location information with trusted contacts.
+Download the APK from the repository's **GitHub Releases** section.
 
-## Project status
+To install it on a compatible Android device:
 
-SafeRoute is a student-built project developed for the Congressional App Challenge.
+1. Download the `.apk` file from the release.
+2. Open the downloaded file on your Android device.
+3. Follow Android's installation prompts.
+4. Open SafeRoute and grant the permissions needed for the features you want to test.
 
-This repository is provided for educational, demonstration, and evaluation purposes. Platform support and feature availability may change as dependencies and services evolve.
+Android may require permission to install applications from the browser or file manager you used to download the APK.
 
-## License
+The SDK 51 APK is a separate compatibility build and does not represent the SDK version of the main source project. Its features should be tested on the target device before relying on them.
 
-Choose and add a license before granting others permission to reuse, modify, or distribute this project.
+### iOS Availability
+
+An Android APK cannot be installed on an iPhone. An iOS build must be created and distributed separately using an appropriate Apple signing and distribution method, such as TestFlight.
+
+---
+
+## 🔐 Privacy and Safety
+
+SafeRoute may use location information to provide navigation and safety-related functionality. Location permissions should be granted only when appropriate for the features being used.
+
+- Review app permissions before use.
+- Protect API keys and Firebase configuration.
+- Avoid publishing personal information in community reports.
+- Use trusted contacts responsibly.
+- Review the privacy policies and terms of any integrated third-party services.
+
+SafeRoute is a student project and is not a substitute for emergency services, official public safety instructions, or personal judgment.
+
+**If you are in immediate danger, contact the appropriate emergency services.**
+
+---
+
+## ⚠️ Limitations and Disclaimer
+
+SafeRoute is intended as a safety-awareness and navigation assistance tool.
+
+- Safety scores are estimates based on the information available to the application; they do not guarantee that a route is safe.
+- Community reports may be incomplete, outdated, inaccurate, or unverified.
+- Weather and alert data may be delayed or unavailable.
+- Routing, traffic, AI, notifications, and location features depend on third-party services, permissions, connectivity, and device compatibility.
+- AI-generated information may be incorrect and should be independently verified when safety is at stake.
+- A route with a higher safety score is not necessarily risk-free.
+- Do not interact with the application while driving or in a situation where doing so could put you at risk.
+
+Use your judgment, follow official guidance, and choose routes appropriate to your circumstances.
+
+---
+
+## 🧪 Project Status
+
+SafeRoute has reached a completed project milestone, with additional packaging and device-compatibility testing ongoing.
+
+The repository includes the main development project, while separately built releases may use different Expo SDK versions for compatibility testing.
+
+Bug reports, reproducible issues, and constructive feedback are welcome.
+
+---
+
+## 🤝 Contributions and Feedback
+
+If you would like to contribute:
+
+1. Fork the repository.
+2. Create a branch for your changes.
+3. Make and test your changes.
+4. Submit a pull request describing the improvements.
+
+Please do not commit API keys, private credentials, personal location data, or other sensitive information.
+
+---
+
+## 📄 License
+
+SafeRoute is intended to be distributed under the **MIT License** if the repository owner chooses to make the project available under those terms.
+
+See the [`LICENSE`](LICENSE) file in the repository for the actual license terms.
+
+Copyright (c) 2026 SafeRoute project contributors.
+
+---
+
+**Built to explore how technology can help people make safer travel decisions.** 🛡️
