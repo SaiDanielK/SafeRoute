@@ -168,37 +168,6 @@ npx expo start
 
 Follow the Expo CLI instructions to open the application on a compatible device or development environment.
 
-**Compatibility note:** The primary source project uses Expo SDK 58. The Android APK distributed with the initial test release was built from a separate SDK 51 backup. Expo Go must support the SDK used by the project; an APK installed directly on Android does not require Expo Go.
-
----
-
-## 📦 Android APK
-
-An Android test build has been produced using Expo Application Services (EAS Build).
-
-- **Platform:** Android
-- **Application version:** 1.0.0
-- **Build profile:** `saferoute-apk`
-- **Expo SDK:** 51.0.0
-- **Distribution:** Internal testing
-
-Download the APK from the repository's **GitHub Releases** section.
-
-To install it on a compatible Android device:
-
-1. Download the `.apk` file from the release.
-2. Open the downloaded file on your Android device.
-3. Follow Android's installation prompts.
-4. Open SafeRoute and grant the permissions needed for the features you want to test.
-
-Android may require permission to install applications from the browser or file manager you used to download the APK.
-
-The SDK 51 APK is a separate compatibility build and does not represent the SDK version of the main source project. Its features should be tested on the target device before relying on them.
-
-### iOS Availability
-
-An Android APK cannot be installed on an iPhone. An iOS build must be created and distributed separately using an appropriate Apple signing and distribution method, such as TestFlight.
-
 ---
 
 ## 🔐 Privacy and Safety
@@ -258,7 +227,7 @@ Please do not commit API keys, private credentials, personal location data, or o
 
 ## 📄 License
 
-SafeRoute is intended to be distributed under the **MIT License** if the repository owner chooses to make the project available under those terms.
+SafeRoute is intended to be distributed under the **MIT License**.
 
 See the [`LICENSE`](LICENSE) file in the repository for the actual license terms.
 
