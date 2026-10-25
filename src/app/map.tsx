@@ -537,7 +537,7 @@ function getRouteHazardImpact(
     coverage: Math.min(100, 60 + nearbyHazards.length * 10),
     explanation:
       `${nearbyHazards.length} community ${countLabel} found within 300 m. ` +
-      "The hazard score considers report category, distance from the route, and report age. Reports are community-submitted and unverified.",
+      "The hazard score considers report category, distance from the route, and report age. Reports are community-submitted.",
     nearbyCount: nearbyHazards.length,
     penalty,
   };
@@ -3516,7 +3516,7 @@ const handlePreviewStepChange = useCallback(
                           </View>
                         ))}
                         <Text style={styles.safetyEstimateNote}>
-                          Scores combine available ORS route data, TomTom traffic data where supplied, and nearby community reports. Hazard reports are unverified and may be outdated; no reports does not mean a route is hazard-free.
+                          Scores combine available ORS route data, TomTom traffic data where supplied, and nearby community reports.
                         </Text>
                       </View>
                     )}

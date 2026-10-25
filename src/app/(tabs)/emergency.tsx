@@ -962,7 +962,7 @@ export default function EmergencyTab() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#07111F" },
-  content: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 70 },
+  content: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 43 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1368,7 +1368,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginTop: 4,
   },
-  bottomSpace: { height: 20 },
+  bottomSpace: { height: 43 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.72)",
