@@ -17,3 +17,5 @@ const firebaseConfig = {
 export const firebaseApp = initializeApp(firebaseConfig);
 
 console.log("🔥 SafeRoute Firebase initialized:", firebaseApp.name);
+
+// API Key Rotated for SafeRoute Firebase Project. New key is stored in .env file as EXPO_PUBLIC_FIREBASE_API_KEY.
